@@ -1,5 +1,5 @@
 .vscode
 build\*
 init.bat
-nob.hs
+nob.h
 build/fds.exe

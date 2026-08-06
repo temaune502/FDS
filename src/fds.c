@@ -3,18 +3,17 @@
 #include <stdarg.h>
 #include <string.h>
 #include <ctype.h>
+#include <assert.h>  
 
 #define FDS_IMPLEMENTATION
 #include "fds.h"
 
-#define da_foreach(Type, it, da) \
-    for (Type *it = (da)->items; it < (da)->items + (da)->count; ++it)
 
 
-int main(void)
-{
-    SV sv = sv_from_cstr("Привіт Світ!");
-    printf("count = %zu", sv.count);
+// ============================================================
+// Демонстраційний main
+// ============================================================
+int main(void) {
 
     return 0;
 }
