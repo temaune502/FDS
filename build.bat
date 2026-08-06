@@ -1,0 +1,1 @@
+gcc -Wall -Wextra -pedantic -ggdb src\fds.c -o build\fds.exe
