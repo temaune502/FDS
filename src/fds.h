@@ -9,6 +9,28 @@
 #define SV_ARGS(sv) (int)(sv).count, (sv).data   /* int cast is required by printf's "%.*s" */
 #define array_len(arr) (sizeof(arr)/sizeof((arr)[0]))
 
+
+#define KB ((size_t)1024)
+#define MB (KB * 1024)
+#define GB (MB * 1024)
+#define TB (GB * 1024)
+
+#define FDS_PANIC(...)                  \
+    do                                  \
+    {                                   \
+        fprintf(stderr, __VA_ARGS__);   \
+        fputc('\n', stderr);            \
+        abort();                        \
+    } while (0)
+
+
+#define TODO(...) \
+    do { \
+        fprintf(stderr, "[TODO] %s:%d (%s): ", __FILE__, __LINE__, __func__); \
+        fprintf(stderr, __VA_ARGS__); \
+        fprintf(stderr, "\n"); \
+    } while(0)
+
 typedef struct {
     size_t count;
     size_t capacity;
@@ -19,7 +41,13 @@ typedef struct {
     size_t count;
     const char *data;
 } SV;
+typedef struct {
+    unsigned char *data;
+    size_t offset;
+    size_t capacity;
+} FixedArena;
 
+typedef size_t ArenaMark;
 /* -------------------- Щось додаткове ----------------------------------- */
 int safe_add(size_t a, size_t b, size_t *res);
 /* -------------------- String Builder (SB) functions -------------------- */
@@ -63,6 +91,38 @@ size_t sv_rfind_char(SV sv, char c);
 int    sv_consume_char(SV *sv, char c);
 int    sv_consume(SV *sv, SV prefix);
 
+
+
+void temp_arena_destroy(void);
+char *fixed_arena_strdup(FixedArena *arena, const char *str);
+char *fixed_arena_strndup(FixedArena *arena, const char *str, size_t len);
+void *fixed_arena_memdup(FixedArena *arena, const void *src, size_t size);
+void *fixed_arena_alloc_array(FixedArena *arena, size_t count, size_t element_size);
+void *fixed_arena_alloc_zero(FixedArena *arena, size_t size);
+void *fixed_arena_alloc(FixedArena *arena, size_t size);
+void *fixed_arena_alloc_align(FixedArena *arena, size_t size, size_t alignment);
+void fixed_arena_restore(FixedArena *arena, ArenaMark mark);
+int fixed_arena_contains(const FixedArena *arena, const void *ptr);
+int fixed_arena_is_empty(const FixedArena *arena);
+ArenaMark fixed_arena_mark(const FixedArena *arena);
+size_t fixed_arena_available(const FixedArena *arena);
+size_t fixed_arena_used(const FixedArena *arena);
+void fixed_arena_reset(FixedArena *arena);
+FixedArena fixed_arena_create(size_t capacity);
+void fixed_arena_free(FixedArena *arena);
+
+
+static inline void temp_arena_restore_mark(ArenaMark* mark);
+char* temp_arena_sprintf(FixedArena* arena, const char* fmt, ...);
+void temp_arena_reset(void);
+FixedArena* temp_arena_get(void);
+
+
+
+
+
+
+
 #ifdef FDS_IMPLEMENTATION
 
 #include <stdlib.h>
@@ -71,6 +131,95 @@ int    sv_consume(SV *sv, SV prefix);
 #include <stdarg.h>
 #include <ctype.h>
 #include <assert.h>
+
+
+// За замовчуванням 8 МБ
+#ifndef TEMP_ARENA_SIZE
+#define TEMP_ARENA_SIZE (8 * MB)
+#endif
+
+// Отримати thread-local арену (ініціалізується ліниво)
+FixedArena* temp_arena_get(void);
+
+// Скинути арену повністю (повернути всю пам'ять)
+void temp_arena_reset(void);
+
+
+_Thread_local FixedArena temp_arena_instance = {0};
+_Thread_local int temp_arena_initialized = 0;
+
+FixedArena* temp_arena_get(void) {
+    if (!temp_arena_initialized) {
+        temp_arena_instance = fixed_arena_create(TEMP_ARENA_SIZE);
+        temp_arena_initialized = 1;
+    }
+    return &temp_arena_instance;
+}
+
+void temp_arena_reset(void) {
+    if (temp_arena_initialized) {
+        fixed_arena_reset(&temp_arena_instance);
+    }
+}
+// Виділити буфер розміру size
+#define TEMP_BUF(size)  fixed_arena_alloc(temp_arena_get(), (size))
+
+// Виділити масив заданого типу
+#define TEMP_ARRAY(Type, count) \
+    ((Type*)fixed_arena_alloc_array(temp_arena_get(), (count), sizeof(Type)))
+
+// Скопіювати рядок
+#define TEMP_STRDUP(str) \
+    fixed_arena_strdup(temp_arena_get(), (str))
+
+// Сформувати рядок через sprintf у тимчасовому буфері
+// Повертає char* на нуль-термінований рядок.
+// Формат: TEMP_SPRINTF("Hello %s", name)
+#define TEMP_SPRINTF(fmt, ...) \
+    temp_arena_sprintf(temp_arena_get(), (fmt), __VA_ARGS__)
+    
+void temp_arena_destroy(void) {
+    if (temp_arena_initialized) {
+        fixed_arena_free(&temp_arena_instance);
+        temp_arena_initialized = 0;
+    }
+}
+
+char* temp_arena_sprintf(FixedArena* arena, const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    // Дізнаємось довжину
+    va_list args_copy;
+    va_copy(args_copy, args);
+    int needed = vsnprintf(NULL, 0, fmt, args_copy);
+    va_end(args_copy);
+    if (needed < 0) return NULL;
+
+    size_t size = (size_t)needed + 1; // +1 для '\0'
+    char* buf = fixed_arena_alloc(arena, size);
+    if (!buf) return NULL; // Якщо арена не вміє повертати NULL, то abort
+
+    vsnprintf(buf, size, fmt, args);
+    va_end(args);
+    return buf;
+}
+
+// Позначити початок тимчасової області
+#define TEMP_MARK()  fixed_arena_mark(temp_arena_get())
+
+// Відновити арену до позначки
+#define TEMP_RESTORE(mark)  fixed_arena_restore(temp_arena_get(), (mark))
+
+
+
+#define TEMP_SCOPE() \
+    __attribute__((cleanup(temp_arena_restore_mark))) ArenaMark temp_mark = fixed_arena_mark(temp_arena_get())
+
+// Функція для cleanup (має приймати вказівник)
+static inline void temp_arena_restore_mark(ArenaMark* mark) {
+    if (mark) fixed_arena_restore(temp_arena_get(), *mark);
+}
+
 
 /* ====================================================================
  *  Внутрішні допоміжні засоби
@@ -87,6 +236,142 @@ int safe_add(size_t a, size_t b, size_t *res) {
 }
 
 
+/*============================================================================================
+Реалізація статично арени пам'яті (FixedArena) для швидкого виділення пам'яті без фрагментації.
+==============================================================================================*/
+// ── створення / знищення ────────────────────────────────────────
+FixedArena fixed_arena_create(size_t capacity) {
+    FixedArena arena = {0};
+    arena.data = (unsigned char *)malloc(capacity);
+    assert(arena.data);  // malloc повернув NULL – помилка програміста (не вистачає пам'яті)
+    arena.capacity = capacity;
+    return arena;
+}
+
+void fixed_arena_free(FixedArena *arena) {
+    assert(arena);
+    free(arena->data);
+    arena->data = NULL;
+    arena->offset = 0;
+    arena->capacity = 0;
+}
+
+void fixed_arena_reset(FixedArena *arena) {
+    assert(arena);
+    arena->offset = 0;
+}
+
+// ── інформація про стан ─────────────────────────────────────────
+size_t fixed_arena_used(const FixedArena *arena) {
+    assert(arena);
+    return arena->offset;
+}
+
+size_t fixed_arena_available(const FixedArena *arena) {
+    assert(arena);
+    return arena->capacity - arena->offset;
+}
+
+int fixed_arena_is_empty(const FixedArena *arena) {
+    assert(arena);
+    return arena->offset == 0;
+}
+
+int fixed_arena_contains(const FixedArena *arena, const void *ptr) {
+    assert(arena);
+    const unsigned char *p = (const unsigned char *)ptr;
+    return (p >= arena->data) && (p < arena->data + arena->offset);
+}
+
+ArenaMark fixed_arena_mark(const FixedArena *arena) {
+    assert(arena);
+    return arena->offset;
+}
+
+void fixed_arena_restore(FixedArena *arena, ArenaMark mark) {
+    assert(arena);
+    assert(mark <= arena->offset);
+    arena->offset = mark;
+}
+
+// ── основні алокатори ───────────────────────────────────────────
+void *fixed_arena_alloc_align(FixedArena *arena, size_t size, size_t alignment) {
+    assert(arena);
+    assert(size > 0);
+    assert(alignment > 0);
+    assert((alignment & (alignment - 1)) == 0);  // степінь двійки
+
+    uintptr_t ptr = (uintptr_t)(arena->data + arena->offset);
+    uintptr_t aligned = (ptr + alignment - 1) & ~(uintptr_t)(alignment - 1);
+    size_t padding = aligned - ptr;
+
+    // Захист від переповнення
+    if (padding > arena->capacity - arena->offset ||
+        size > arena->capacity - arena->offset - padding) {
+        fprintf(stderr, "FixedArena out of memory (capacity %zu, needed %zu)\n",
+                arena->capacity, arena->offset + padding + size);
+        abort();
+    }
+
+    arena->offset += padding;
+    void *result = arena->data + arena->offset;
+    arena->offset += size;
+    return result;
+}
+#define fixed_arena_new_aligned(arena, Type, alignment) \
+    ((Type *)fixed_arena_alloc_align((arena), sizeof(Type), (alignment)))
+
+void *fixed_arena_alloc(FixedArena *arena, size_t size) {
+    return fixed_arena_alloc_align(arena, size, sizeof(void *));
+}
+
+void *fixed_arena_alloc_zero(FixedArena *arena, size_t size) {
+    void *ptr = fixed_arena_alloc(arena, size);
+    memset(ptr, 0, size);
+    return ptr;
+}
+
+void *fixed_arena_alloc_array(FixedArena *arena, size_t count, size_t element_size) {
+    // Перевірка на переповнення множення
+    size_t total;
+    if (count > 0 && element_size > SIZE_MAX / count) {
+        fprintf(stderr, "Array size overflow\n");
+        abort();
+    }
+    total = count * element_size;
+    return fixed_arena_alloc(arena, total);
+}
+
+// ── копіювання даних ────────────────────────────────────────────
+void *fixed_arena_memdup(FixedArena *arena, const void *src, size_t size) {
+    void *dst = fixed_arena_alloc(arena, size);
+    memcpy(dst, src, size);
+    return dst;
+}
+
+char *fixed_arena_strndup(FixedArena *arena, const char *str, size_t len) {
+    char *dst = (char *)fixed_arena_alloc(arena, len + 1);
+    memcpy(dst, str, len);
+    dst[len] = '\0';
+    return dst;
+}
+
+char *fixed_arena_strdup(FixedArena *arena, const char *str) {
+    return fixed_arena_strndup(arena, str, strlen(str));
+}
+
+// ── макроси ─────────────────────────────────────────────────────
+#define fixed_arena_new(arena, Type) \
+    ((Type *)fixed_arena_alloc((arena), sizeof(Type)))
+
+#define fixed_arena_new_zero(arena, Type) \
+    ((Type *)fixed_arena_alloc_zero((arena), sizeof(Type)))
+
+#define fixed_arena_array(arena, Type, count) \
+    ((Type *)fixed_arena_alloc_array((arena), (count), sizeof(Type)))
+
+#define fixed_arena_array_zero(arena, Type, count) \
+    ((Type *)memset(fixed_arena_alloc_array((arena), (count), sizeof(Type)), 0, sizeof(Type) * (count)))
 
 
 
