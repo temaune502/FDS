@@ -1,4 +1,6 @@
 .vscode
 build\*
-nob.h
+nob.*
+nob.c
+nob.exe
 build\fds.exe
