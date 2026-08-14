@@ -7,8 +7,6 @@
 #include <stdint.h>
 #include <stdarg.h>
 
-// Ваші макроси та реалізація FixedArena + TempArena
-// ... (скопіюйте сюди весь код із fds.h/fds.c)
 
 #define FDS_IMPLEMENTATION
 #include "fds.h"
@@ -47,7 +45,7 @@ void test_mark_restore_cycle(void) {
     FixedArena arena = fixed_arena_create(1 * MB);
 
     for (int cycle = 0; cycle < 1000; cycle++) {
-        ArenaMark m = fixed_arena_mark(&arena);
+        FixedArenaMark m = fixed_arena_mark(&arena);
         // Виділяємо випадкову кількість об'єктів
         int count = rand() % 100 + 1;
         for (int i = 0; i < count; i++) {
