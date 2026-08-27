@@ -1,11 +1,14 @@
 #ifndef FDS_H
 #define FDS_H
 
+#pragma once
+
 #include <stdalign.h>
 #include <stddef.h>
 #include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
+
 
 #define KB ((size_t)1024)
 #define MB (KB * 1024)
@@ -41,34 +44,28 @@
 
 #define array_len(arr) (sizeof(arr)/sizeof((arr)[0]))
 
-#define FDS_PANIC(...)                  \
-    do                                  \
-    {                                   \
-        fprintf(stderr, __VA_ARGS__);   \
-        fputc('\n', stderr);            \
-        abort();                        \
-    } while (0)
+#define FDS_PANIC(...) fds_log(FFATAL, __VA_ARGS__); 
     
     
-    #define TODO(...) \
-    do { \
-        fprintf(stderr, "[TODO] %s:%d (%s): ", __FILE__, __LINE__, __func__); \
-        fprintf(stderr, __VA_ARGS__); \
-        fprintf(stderr, "\n"); \
-    } while(0)
+#define TODO(...) \
+do { \
+    fprintf(stderr, "[TODO] %s:%d (%s): ", __FILE__, __LINE__, __func__); \
+    fprintf(stderr, __VA_ARGS__); \
+    fprintf(stderr, "\n"); \
+} while(0)
 
+#define fds_unused (void)
 
 // Macros work with StringArray
 // A macro for quick initialization + adding a few lines.
 // Example: SA_INIT(&arr, "gcc", "-Wall", "-O2");
 // The macro will insert a NULL sentinel as the last argument.
-#define SA_INIT(sa, ...) sa_init_from_strings((sa), __VA_ARGS__, NULL)
+#define sa_init(sa, ...) sa_init_from_strings((sa), __VA_ARGS__, NULL)
+#define sa_pushm(sa, ...) sa_push_many_impl((sa), __VA_ARGS__, NULL)
 
 #define SA_FOREACH(sa, it) \
     for (char **it = (sa)->data; it != (sa)->data + (sa)->size; ++it)
 
-#define SA_PRINT(sa)        sa_print((sa))
-#define SA_PRINT_LINES(sa)  sa_print_lines((sa))
 
 #define ARENA_MAX_ALIGN alignof(max_align_t)
 
@@ -119,7 +116,29 @@
 
 #define fixed_arena_array_zero(arena, Type, count) ((Type *)memset(fixed_arena_alloc_array((arena), (count), sizeof(Type)), 0, sizeof(Type) * (count)))
 
+//================================ 
+//   Macro for loging
+#define fds_log(level, ...) fds_log_impl(level, __FILE__, __LINE__, __func__, __VA_ARGS__)
 
+#ifdef _WIN32
+    #define FDS_ISATTY _isatty
+    #define FDS_FILENO _fileno
+#else
+    #include <unistd.h>
+    #define FDS_ISATTY isatty
+    #define FDS_FILENO fileno
+#endif
+
+//=======================================================
+//                    Log levels
+//=======================================================
+
+typedef enum {
+    FINFO = 0,
+    FWARN,
+    FERROR,
+    FFATAL
+} fds_log_level;
 
 
 //=======================================================
@@ -325,19 +344,37 @@ typedef struct {
 } ArenaReservation;
 
 
+
+// Procs struct
+typedef struct {
+    bool success;      // Чи вдалося взагалі запустити процес (false, якщо файла не існує)
+    int exit_code;     // Код завершення програми (0 = успіх)
+    char *stdout_data; // Буфер стандартного виводу (завжди нуль-термінований)
+    char *stderr_data; // Буфер виводу помилок (завжди нуль-термінований)
+    size_t stdout_len; // Довжина виводу
+    size_t stderr_len; // Довжина помилок
+} fds_cmd_result;
+
+
+
+
 //=================================================================================================================================
 //                                          Functions declaration
 //=================================================================================================================================
 
 
 // honestly, I don't remember why I wrote it, but for something important, so it should be left
-int safe_add(size_t a, size_t b, size_t *res);
+static inline int safe_add(size_t a, size_t b, size_t *res);
 
 
 
 
 
 
+// Logging fuctions Start ================================================================================================================
+static inline bool fds_should_use_color(FILE *stream);
+void fds_log_impl(fds_log_level level, const char *file, int line, const char *func, const char *fmt, ...);
+// Logging fuctions End ================================================================================================================
 
 // Console utils fuctions Start ================================================================================================================
 
@@ -529,11 +566,12 @@ void sa_print(const StringArray *sa);         // uses printf for each line
 void sa_fprint(FILE *stream, const StringArray *sa);
 
 // --- Lifecycle ---
-bool sa_init(StringArray *sa, size_t initial_cap);
+bool sa_new(StringArray *sa, size_t initial_cap);
 void sa_free(StringArray *sa);
 
 // --- Adding / removing ---
 bool sa_push(StringArray *sa, const char *str);   // copies the string
+bool sa_push_many_impl(StringArray *sa, const char *first, ...);
 char *sa_pop(StringArray *sa);                     // caller must free() the returned string
 bool sa_insert(StringArray *sa, size_t idx, const char *str);
 bool sa_remove(StringArray *sa, size_t idx);
@@ -596,6 +634,31 @@ SB   sb_clone(const SB *sb);
 // Appends a string with formatting
 void sb_appendf(SB *sb, const char *fmt, ...);
 // String builder fuctions End ================================================================================================================
+
+
+
+
+
+
+
+
+
+// Time utils fuctions Start ================================================================================================================
+
+double fds_time_now(void);
+void fds_sleep_ms(int milliseconds);
+
+// Time utils fuctions End ================================================================================================================
+
+
+
+
+
+
+
+
+
+
 
 
 // String view fuctions Start ================================================================================================================
@@ -757,8 +820,23 @@ IniConfig ini_parse_sb(SB *content);
 
 
 
+// Procs fuctions Start ================================================================================================================
 
+int fds_cmd_run_Simp(const char *cmd_utf8, char **out_output);
+fds_cmd_result fds_cmd_run_ext(const char *cmd_utf8);
+void fds_cmd_result_free(fds_cmd_result *res);
+static void fds_append_pipe_data(char **buffer, size_t *len, size_t *cap, const char *chunk, size_t chunk_size);
+
+// Procs fuctions End ================================================================================================================
+
+
+
+
+
+
+// Start of implementation!!!
 #ifdef FDS_IMPLEMENTATION
+
 
 #include <stdlib.h>
 #include <string.h>
@@ -768,27 +846,39 @@ IniConfig ini_parse_sb(SB *content);
 
 #include <sys/stat.h>
 
+#ifdef _WIN32
+    #define WIN32_LEAN_AND_MEAN
+    #include <windows.h>
+    #include <shellapi.h>
+    #include <io.h>
+    #include <time.h>
+#endif
 
-
+#ifdef _WIN32
+    static double fds_g_timer_frequency = 0.0;
+#endif
 _Static_assert((ALIGNMENT & (ALIGNMENT - 1)) == 0,  "ALIGNMENT must be a power of two");
 _Static_assert(ALIGNMENT >= alignof(max_align_t),   "ALIGNMENT too small for platform");
-/* ---------- Static buffer refers to fds_malloc ---------- */
-static _Alignas(ALIGNMENT) unsigned char heap_mem[HEAP_SIZE] = {0};
 
 static const char EMPTY_STR[] = "";
-/* ---------- Heap state refers to fds_malloc ---------- */
+// ---------- Heap state refers to fds_malloc ---------- 
 static unsigned char *heap_base = NULL;
 static size_t         heap_size = 0;
 static block_t       *free_list = NULL;
 
+
 _Thread_local FixedArena temp_arena_instance = {0};
 _Thread_local int temp_arena_initialized = 0;
+// ---------- Static buffer refers to fds_malloc ---------- 
+static _Alignas(ALIGNMENT) unsigned char heap_mem[HEAP_SIZE] = {0};
 
-int safe_add(size_t a, size_t b, size_t *res) {
+static inline int safe_add(size_t a, size_t b, size_t *res) {
     if (a > SIZE_MAX - b) return 0;
     *res = a + b;
     return 1;
 }
+
+
 
 
 static void *arena_default_alloc(size_t size) { return malloc(size); }
@@ -801,14 +891,62 @@ static void arena_default_free(void *ptr)      { free(ptr); }
 
 
 
+// Loging functions Start ================================================================================================================
+
+static inline bool fds_should_use_color(FILE *stream) {
+    return FDS_ISATTY(FDS_FILENO(stream)) != 0;
+}
+
+void fds_log_impl(fds_log_level level, const char *file, int line, const char *func, const char *fmt, ...) {
+    const char *prefix = "";
+    const char *color = "";
+    const char *reset = "";
+    const char *meta_color = "";
+    FILE *stream = stdout;
+
+    // Встановлюємо рівні та потоки
+    switch (level) {
+        case FINFO:  prefix = "[INFO] "; color = "\x1b[32m"; break;
+        case FWARN:  prefix = "[WARN] "; color = "\x1b[33m"; break;
+        case FERROR: prefix = "[ERROR]"; color = "\x1b[31m"; stream = stderr; break;
+        case FFATAL: prefix = "[FATAL]"; color = "\x1b[35m"; stream = stderr; break;
+    }
+
+    // Якщо вивід йде у файл, зануляємо всі кольори
+    if (fds_should_use_color(stream)) {
+        reset = "\x1b[0m";
+        meta_color = "\x1b[90m"; // Сірий для метаданих
+    } else {
+        color = "";
+        reset = "";
+        meta_color = "";
+    }
+
+    // Виводимо префікс і метадані (з кольором або без)
+    fprintf(stream, "%s%s%s %s%s:%d:%s:%s ", color, prefix, reset, meta_color, file, line, func, reset);
+
+    // Виводимо повідомлення
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(stream, fmt, args);
+    va_end(args);
+
+    fprintf(stream, "\n");
+    fflush(stream);
+
+    if (level == FFATAL) {
+        exit(69);
+    }
+}
+
+// Loging functions End ================================================================================================================
+
+
+
 
 
 // Console utils functions Start ================================================================================================================
-#ifdef _WIN32
-    #define WIN32_LEAN_AND_MEAN
-    #include <windows.h>
-    #include <shellapi.h>
-#endif
+
 static wchar_t* fds_internal_utf8_to_utf16(const char *utf8_str) {
     if (!utf8_str) return NULL;
     
@@ -822,6 +960,8 @@ static wchar_t* fds_internal_utf8_to_utf16(const char *utf8_str) {
     MultiByteToWideChar(CP_UTF8, 0, utf8_str, -1, wstr, len);
     return wstr;
 }
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
 
 // Конвертація UTF-16 -> UTF-8 (потрібна при читанні назв файлів із папки)
 static char* fds_internal_utf16_to_utf8(const wchar_t *utf16_str) {
@@ -836,6 +976,8 @@ static char* fds_internal_utf16_to_utf8(const wchar_t *utf16_str) {
     WideCharToMultiByte(CP_UTF8, 0, utf16_str, -1, str, len, NULL, NULL);
     return str;
 }
+
+#pragma GCC diagnostic pop
 // Ініціалізація консолі та нормалізація argv до UTF-8
 void fds_cli_init(int *argc, char ***argv) {
 #ifdef _WIN32
@@ -886,6 +1028,270 @@ size_t utf8_strlen(const char *s) {
     return count;
 }
 // Console utils functions End ================================================================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Procs functions Start ================================================================================================================
+
+static void fds_append_pipe_data(char **buffer, size_t *len, size_t *cap, const char *chunk, size_t chunk_size) {
+    if (*len + chunk_size + 1 > *cap) {
+        *cap = (*cap == 0) ? 1024 : (*cap * 2) + chunk_size;
+        char *new_buf = (char *)realloc(*buffer, *cap);
+        if (new_buf) {
+            *buffer = new_buf;
+        } else {
+            fds_log(FFATAL, "Out of memory! By more memory!!!");
+        }
+    }
+    memcpy(*buffer + *len, chunk, chunk_size);
+    *len += chunk_size;
+    (*buffer)[*len] = '\0'; // Завжди тримаємо нуль-термінатор для printf
+}
+
+// Звільняє пам'ять, виділену під результат команди
+void fds_cmd_result_free(fds_cmd_result *res) {
+    if (res->stdout_data) free(res->stdout_data);
+    if (res->stderr_data) free(res->stderr_data);
+    res->stdout_data = NULL;
+    res->stderr_data = NULL;
+    res->stderr_len = 0;
+    res->stdout_len = 0;
+    res->exit_code = -1;
+}
+
+fds_cmd_result fds_cmd_run_ext(const char *cmd_utf8) {
+    fds_cmd_result res = {0};
+    // Ініціалізуємо буфери порожніми рядками, щоб завжди можна було безпечно робити printf
+    res.stdout_data = (char*)calloc(1, 1);
+    res.stderr_data = (char*)calloc(1, 1);
+    
+    size_t out_cap = 1, err_cap = 1;
+
+#ifdef _WIN32
+    SECURITY_ATTRIBUTES sa = {0};
+    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+    sa.bInheritHandle = TRUE;
+    sa.lpSecurityDescriptor = NULL;
+
+    HANDLE out_rd, out_wr, err_rd, err_wr;
+    // Створюємо пайпи
+    if (!CreatePipe(&out_rd, &out_wr, &sa, 0)) return res;
+    SetHandleInformation(out_rd, HANDLE_FLAG_INHERIT, 0); // Читаючі кінці не успадковуються
+    
+    if (!CreatePipe(&err_rd, &err_wr, &sa, 0)) {
+        CloseHandle(out_rd); CloseHandle(out_wr); return res;
+    }
+    SetHandleInformation(err_rd, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOW si = {0};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    si.hStdOutput = out_wr;
+    si.hStdError = err_wr;
+    si.wShowWindow = SW_HIDE; // Не блимаємо чорним вікном консолі
+
+    PROCESS_INFORMATION pi = {0};
+
+    // Перетворюємо команду в UTF-16. (Буфер має бути змінним, CreateProcessW може його модифікувати)
+    wchar_t *wcmd = fds_internal_utf8_to_utf16(cmd_utf8);
+
+    if (!CreateProcessW(NULL, wcmd, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
+        CloseHandle(out_rd); CloseHandle(out_wr);
+        CloseHandle(err_rd); CloseHandle(err_wr);
+        return res;
+    }
+
+    // Батьківський процес повинен закрити свої копії записуючих кінців
+    CloseHandle(out_wr);
+    CloseHandle(err_wr);
+
+    res.success = true;
+    bool out_open = true, err_open = true;
+
+    // Читаємо пайпи одночасно (Deadlock Prevention)
+    while (out_open || err_open) {
+        bool data_read = false;
+        DWORD avail = 0, bytes_read = 0;
+        char chunk[4096];
+
+        if (out_open && PeekNamedPipe(out_rd, NULL, 0, NULL, &avail, NULL) && avail > 0) {
+            if (ReadFile(out_rd, chunk, sizeof(chunk), &bytes_read, NULL) && bytes_read > 0) {
+                fds_append_pipe_data(&res.stdout_data, &res.stdout_len, &out_cap, chunk, bytes_read);
+                data_read = true;
+            } else { out_open = false; }
+        } else if (out_open && !avail) {
+            // Перевіряємо, чи процес вже закрив пайп
+            if (!PeekNamedPipe(out_rd, NULL, 0, NULL, &avail, NULL)) out_open = false;
+        }
+
+        if (err_open && PeekNamedPipe(err_rd, NULL, 0, NULL, &avail, NULL) && avail > 0) {
+            if (ReadFile(err_rd, chunk, sizeof(chunk), &bytes_read, NULL) && bytes_read > 0) {
+                fds_append_pipe_data(&res.stderr_data, &res.stderr_len, &err_cap, chunk, bytes_read);
+                data_read = true;
+            } else { err_open = false; }
+        } else if (err_open && !avail) {
+            if (!PeekNamedPipe(err_rd, NULL, 0, NULL, &avail, NULL)) err_open = false;
+        }
+
+        // Щоб не палити 100% CPU у циклі, якщо процес нічого не пише
+        if (!data_read && (out_open || err_open)) Sleep(1);
+    }
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD exit_code;
+    GetExitCodeProcess(pi.hProcess, &exit_code);
+    res.exit_code = exit_code;
+
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    CloseHandle(out_rd);
+    CloseHandle(err_rd);
+
+#else
+    // POSIX реалізація
+    int out_pipe[2], err_pipe[2];
+    if (pipe(out_pipe) == -1 || pipe(err_pipe) == -1) return res;
+
+    pid_t pid = fork();
+    if (pid < 0) return res;
+
+    if (pid == 0) { // Child
+        dup2(out_pipe[1], STDOUT_FILENO);
+        dup2(err_pipe[1], STDERR_FILENO);
+        close(out_pipe[0]); close(out_pipe[1]);
+        close(err_pipe[0]); close(err_pipe[1]);
+        
+        // Використовуємо sh -c для того, щоб команда парсилася так само, як у Windows
+        execl("/bin/sh", "sh", "-c", cmd_utf8, (char *)NULL);
+        exit(127); // Якщо execl провалився
+    }
+
+    // Parent
+    close(out_pipe[1]);
+    close(err_pipe[1]);
+    res.success = true;
+
+    // Використовуємо poll() для одночасного читання
+    struct pollfd pfd[2];
+    pfd[0].fd = out_pipe[0]; pfd[0].events = POLLIN;
+    pfd[1].fd = err_pipe[0]; pfd[1].events = POLLIN;
+
+    while (pfd[0].fd != -1 || pfd[1].fd != -1) {
+        if (poll(pfd, 2, -1) < 0) break;
+        
+        char chunk[4096];
+        
+        for (int i = 0; i < 2; i++) {
+            if (pfd[i].fd != -1 && (pfd[i].revents & POLLIN)) {
+                ssize_t bytes = read(pfd[i].fd, chunk, sizeof(chunk));
+                if (bytes > 0) {
+                    if (i == 0) fds_append_pipe_data(&res.stdout_data, &res.stdout_len, &out_cap, chunk, bytes);
+                    else        fds_append_pipe_data(&res.stderr_data, &res.stderr_len, &err_cap, chunk, bytes);
+                } else {
+                    close(pfd[i].fd); pfd[i].fd = -1; // EOF
+                }
+            } else if (pfd[i].fd != -1 && (pfd[i].revents & (POLLHUP | POLLERR))) {
+                close(pfd[i].fd); pfd[i].fd = -1;
+            }
+        }
+    }
+
+    int status;
+    waitpid(pid, &status, 0);
+    if (WIFEXITED(status)) {
+        res.exit_code = WEXITSTATUS(status);
+    } else {
+        res.exit_code = -1;
+    }
+#endif
+
+    return res;
+}
+
+
+int fds_cmd_run_Simp(const char *cmd_utf8, char **out_output) {
+    FILE *pipe = NULL;
+
+#ifdef _WIN32
+    // На Windows переводимо команду в UTF-16, щоб підтримувати кирилицю в шляхах
+    wchar_t *wcmd = fds_internal_utf8_to_utf16(cmd_utf8);
+    if (!wcmd) return -1;
+    
+    // "rt" - read text mode (автоматично конвертує \r\n у \n)
+    pipe = _wpopen(wcmd, L"rt"); 
+#else
+    // На POSIX системах UTF-8 працює нативно
+    pipe = popen(cmd_utf8, "r");
+#endif
+
+    if (!pipe) {
+        if (out_output) *out_output = NULL;
+        return -1;
+    }
+
+    // Якщо користувач хоче отримати вивід
+    if (out_output) {
+        size_t capacity = 1024;
+        size_t size = 0;
+        char *buffer = (char *)malloc(capacity); 
+        
+        if (buffer) {
+            buffer[0] = '\0';
+            char chunk[256];
+            
+            // Зчитуємо потік шматками
+            while (fgets(chunk, sizeof(chunk), pipe) != NULL) {
+                size_t chunk_len = strlen(chunk);
+                
+                // Розширюємо буфер, якщо не вистачає місця
+                if (size + chunk_len + 1 > capacity) {
+                    capacity = capacity * 2 + chunk_len;
+                    char *new_buf = (char *)realloc(buffer, capacity);
+                    if (!new_buf) break; // Обробка нестачі пам'яті
+                    buffer = new_buf;
+                }
+                
+                strcpy(buffer + size, chunk);
+                size += chunk_len;
+            }
+        }
+        *out_output = buffer;
+    } else {
+        // Якщо вивід не потрібен, просто чекаємо завершення команди,
+        // але треба вичитати буфер, щоб процес не завис, якщо виводу багато
+        char dump[256];
+        while (fgets(dump, sizeof(dump), pipe) != NULL) {}
+    }
+
+    // Закриваємо pipe і повертаємо код завершення команди
+#ifdef _WIN32
+    return _pclose(pipe);
+#else
+    // pclose на POSIX повертає статус, який треба розпакувати через WEXITSTATUS
+    int status = pclose(pipe);
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+#endif
+}
+
+
+
+// Procs functions End ================================================================================================================
+
+
+
+
+
+
 
 
 
@@ -958,7 +1364,7 @@ size_t sa_find_custom(const StringArray *sa, const char *needle,
 bool sa_copy(StringArray *dst, const StringArray *src) {
     // The initial capacity is the same as that of the source, but at least 1
     size_t cap = src->size > 0 ? src->size : 1;
-    if (!sa_init(dst, cap))
+    if (!sa_new(dst, cap))
         return false;
 
     for (size_t i = 0; i < src->size; i++) {
@@ -1042,7 +1448,7 @@ bool sa_contains(const StringArray *sa, const char *str) {
     return sa_find(sa, str) != (size_t)-1;
 }
 bool sa_init_from_strings(StringArray *sa, const char *first, ...) { 
-    sa_init(sa, 4); // the initial capacity is common sense
+    sa_new(sa, 4); // the initial capacity is common sense
     
     if (!first) return true; // empty list
     
@@ -1063,7 +1469,26 @@ bool sa_init_from_strings(StringArray *sa, const char *first, ...) {
     va_end(args); 
     return true; 
 }
-
+bool sa_push_many_impl(StringArray *sa, const char *first, ...) { 
+    if (!first) return true; // empty list
+    
+    va_list args; 
+    va_start(args, first); 
+    
+    const char *s = first; 
+    while (s != NULL) { 
+        if (!sa_push(sa, s)) { 
+            va_end(args); 
+            sa_free(sa); 
+            return false; 
+        } 
+        // FIXED: Read pointer to char, not char itself
+        s = va_arg(args, const char *); 
+    } 
+    
+    va_end(args); 
+    return true; 
+}
 char *sa_join(const StringArray *sa, const char *delim) {
     if (sa->size == 0) return str_dup("");
     size_t delim_len = delim ? strlen(delim) : 0;
@@ -1170,7 +1595,7 @@ static bool sa_grow(StringArray *sa) {
     return true;
 }
 
-bool sa_init(StringArray *sa, size_t initial_cap) {
+bool sa_new(StringArray *sa, size_t initial_cap) {
     sa->data = NULL;
     sa->size = 0;
     sa->capacity = 0;
@@ -1297,8 +1722,7 @@ void sv_remove_prefix(SV *sv, size_t count) {
 char *sv_to_cstr(SV sv) {
     char *cstr = malloc(sv.count + 1);
     if (cstr == NULL) {
-        fprintf(stderr, "Out of memory\n");
-        abort();
+        fds_log(FFATAL, "Out of memory");
     }
     if (sv.count > 0) {
         memcpy(cstr, sv.data, sv.count);
@@ -1491,8 +1915,7 @@ SB sv_to_sb(SV sv) {
     
     sb.items = malloc(sb.capacity);
     if (sb.items == NULL) {
-        fprintf(stderr, "Out of memory\n");
-        abort();
+        fds_log(FFATAL, "Out of memory");
     }
     
     sb.count = sv.count;
@@ -1506,8 +1929,7 @@ static void sb_grow(SB *sb, size_t size) {
     /* Checking for overflow when calculating the required volume */
     size_t needed;
     if (!safe_add(sb->count, size, &needed) || !safe_add(needed, 1, &needed)) {
-        fprintf(stderr, "Requested size too large\n");
-        abort();
+        fds_log(FERROR, "Requested size too large");
     }
 
     /* If the current capacity is sufficient, we do nothing */
@@ -1530,8 +1952,7 @@ static void sb_grow(SB *sb, size_t size) {
     /* Allocation of memory */
     char *new_items = realloc(sb->items, new_cap);
     if (new_items == NULL) {
-        fprintf(stderr, "Out of memory\n");
-        abort();
+        fds_log(FFATAL, "Out of memory");
     }
     sb->items = new_items;
     sb->capacity = new_cap;
@@ -1552,8 +1973,7 @@ SB sb_from_cstr(const char *str) {
     sb.capacity = len + 1;
     sb.items = malloc(sb.capacity);
     if (sb.items == NULL) {
-        fprintf(stderr, "Out of memory\n");
-        abort();
+        fds_log(FFATAL, "Out of memory");
     }
     memcpy(sb.items, str, len + 1);
     return sb;
@@ -1564,8 +1984,7 @@ SB sb_new(void) {
     sb.capacity = SB_INITIAL_CAPACITY;
     sb.items = malloc(sb.capacity);
     if (sb.items == NULL) {
-        fprintf(stderr, "Out of memory\n");
-        abort();
+        fds_log(FFATAL, "Out of memory");
     }
     sb.items[0] = '\0';
     return sb;
@@ -1600,8 +2019,7 @@ void sb_reserve(SB *sb, size_t capacity) {
     if (capacity <= sb->capacity) return;
     char *new_items = realloc(sb->items, capacity);
     if (new_items == NULL) {
-        fprintf(stderr, "Out of memory\n");
-        abort();
+        fds_log(FFATAL, "Out of memory");
     }
     sb->items = new_items;
     sb->capacity = capacity;
@@ -1611,13 +2029,11 @@ void sb_reserve_extra(SB *sb, size_t extra) {
     if (extra == 0) return;
     size_t new_cap;
     if (!safe_add(sb->capacity, extra, &new_cap)) {
-        fprintf(stderr, "Capacity overflow\n");
-        abort();
+        fds_log(FFATAL, "Capacity overflow");
     }
     char *new_items = realloc(sb->items, new_cap);
     if (new_items == NULL) {
-        fprintf(stderr, "Out of memory\n");
-        abort();
+        fds_log(FFATAL, "Out of memory");
     }
     sb->items = new_items;
     sb->capacity = new_cap;
@@ -1645,8 +2061,7 @@ SB sb_clone(const SB *sb) {
     copy.capacity = sb->count + 1;
     copy.items = malloc(copy.capacity);
     if (copy.items == NULL) {
-        fprintf(stderr, "Out of memory\n");
-        abort();
+        fds_log(FFATAL, "Out of memory");
     }
     memcpy(copy.items, sb->items, sb->count + 1);
     return copy;
@@ -1689,8 +2104,7 @@ void sb_appendf(SB *sb, const char *fmt, ...) {
     do {                                                                       \
         void *_p = realloc((da)->items, (new_cap) * sizeof(*(da)->items));     \
         if (!_p) {                                                             \
-            fprintf(stderr, "Out of memory\n");                                \
-            abort();                                                           \
+            fds_log(FFATAL, "Out of memory");                                  \
         }                                                                      \
         (da)->items = _p;                                                      \
         (da)->capacity = (new_cap);                                            \
@@ -1907,8 +2321,7 @@ static float sv_to_float(SV sv) {
     free(cstr);
     
     if (is_invalid) {
-        fprintf(stderr, "invalid float value: " SV_FMT "\n", SV_ARGS(sv));
-        exit(1);
+        fds_log(FERROR, "invalid float value: " SV_FMT, SV_ARGS(sv));
     }
     return val;
 }
@@ -1932,8 +2345,7 @@ static void set_flag_value(Flag *f, SV val) {
         else if (sv_eq_cstr(val, "false"))
             *(bool*)f->ptr = false;
         else {
-            fprintf(stderr, "invalid boolean value for -%s: " SV_FMT "\n", f->name, SV_ARGS(val));
-            exit(1);
+            fds_log(FERROR, "invalid boolean value for -%s: " SV_FMT , f->name, SV_ARGS(val));
         }
         break;
     case FLAG_STRING: {
@@ -1946,8 +2358,7 @@ static void set_flag_value(Flag *f, SV val) {
     }
     case FLAG_INT:
         if (!is_integer(val)) {
-            fprintf(stderr, "invalid integer value for -%s: " SV_FMT "\n", f->name, SV_ARGS(val));
-            exit(1);
+            fds_log(FERROR, "invalid integer value for -%s: " SV_FMT , f->name, SV_ARGS(val));
         }
         *(int*)f->ptr = sv_to_int(val);
         break;
@@ -1959,8 +2370,7 @@ static void set_flag_value(Flag *f, SV val) {
         break;
     case FLAG_INT_LIST:
         if (!is_integer(val)) {
-            fprintf(stderr, "invalid integer value for -%s: " SV_FMT "\n", f->name, SV_ARGS(val));
-            exit(1);
+            fds_log(FERROR, "invalid integer value for -%s: " SV_FMT, f->name, SV_ARGS(val));
         }
         da_push((da_int*)f->ptr, sv_to_int(val));
         break;
@@ -1977,8 +2387,7 @@ static void set_flag_value(Flag *f, SV val) {
 FlagSet *flagset_new(void) {
     FlagSet *fs = (FlagSet *)calloc(1, sizeof(*fs));
     if (!fs) {
-        fprintf(stderr, "out of memory\n");
-        exit(1);
+        fds_log(FFATAL, "Out of memory");
     }
     return fs;
 }
@@ -2046,9 +2455,8 @@ void flagset_var(FlagSet *fs, FlagType type, void *ptr, const char *name,
     f.defval = strdup(defval);
     f.usage = strdup(usage);
     if (!f.name || !f.defval || !f.usage) {
-        fprintf(stderr, "out of memory\n");
         free(f.name); free(f.defval); free(f.usage);
-        exit(1);
+        fds_log(FFATAL, "Out of memory");
     }
     memcpy((void*)f.name, name, name_len);
     f.type = type;
@@ -2084,8 +2492,7 @@ void flagset_parse(FlagSet *fs, int argc, char **argv) {
     size_t args_max = argc;
     fs->args = (SV *)malloc(args_max * sizeof(SV));
     if (!fs->args) {
-        fprintf(stderr, "out of memory\n");
-        exit(1);
+        fds_log(FFATAL, "Out of memory");
     }
     fs->args_cap = args_max;
     fs->args_count = 0;
@@ -2126,9 +2533,8 @@ void flagset_parse(FlagSet *fs, int argc, char **argv) {
 
             Flag *f = find_flag(fs, name_sv);
             if (!f) {
-                fprintf(stderr, "flag provided but not defined: -%.*s\n", (int)name_sv.count, name_sv.data);
                 flagset_usage(fs);
-                exit(1);
+                fds_log(FERROR, "flag provided but not defined: -%.*s", (int)name_sv.count, name_sv.data);
             }
 
             if (f->type == FLAG_BOOL && eq_pos == SV_NPOS) {
@@ -2137,8 +2543,7 @@ void flagset_parse(FlagSet *fs, int argc, char **argv) {
                 if (eq_pos == SV_NPOS) {
                     i++;
                     if (i >= argc) {
-                        fprintf(stderr, "flag needs an argument: -%s\n", f->name);
-                        exit(1);
+                        fds_log(FERROR, "flag needs an argument: -%s", f->name);
                     }
                     value_sv = sv_from_cstr(argv[i]);
                 }
@@ -2149,8 +2554,7 @@ void flagset_parse(FlagSet *fs, int argc, char **argv) {
                 size_t new_cap = fs->args_cap * 2;
                 SV *new_args = (SV *)realloc(fs->args, new_cap * sizeof(SV));
                 if (!new_args) {
-                    fprintf(stderr, "out of memory\n");
-                    exit(1);
+                    fds_log(FFATAL, "Out of memory");
                 }
                 fs->args = new_args;
                 fs->args_cap = new_cap;
@@ -2164,9 +2568,8 @@ void flagset_parse(FlagSet *fs, int argc, char **argv) {
     for (size_t j = 0; j < fs->count; j++) {
         Flag *f = &fs->items[j];
         if (f->required && !f->set) {
-            fprintf(stderr, "Error: required flag -%s not provided\n", f->name);
             flagset_usage(fs);
-            exit(1);
+            fds_log(FERROR, "Error: required flag -%s not provided", f->name);
         }
     }
 }
@@ -2234,8 +2637,8 @@ static ArenaChunk *arena_chunk_create(Arena *arena, size_t capacity) {
     if (!chunk) {
         // Default is crash.
         // If soft handling is desired, ensure that your alloc() does not return NULL
-        fprintf(stderr, "Arena: out of memory\n");
-        abort();
+        fds_log(FFATAL, "Arena: out of memory");
+
     }
     chunk->next = NULL;
     chunk->used = 0;
@@ -2601,9 +3004,8 @@ void *fixed_arena_alloc_align(FixedArena *arena, size_t size, size_t alignment) 
     // Protection against overflow
     if (padding > arena->capacity - arena->offset ||
         size > arena->capacity - arena->offset - padding) {
-        fprintf(stderr, "FixedArena out of memory (capacity %zu, needed %zu)\n",
+        fds_log(FFATAL, "FixedArena out of memory (capacity %zu, needed %zu)",
                 arena->capacity, arena->offset + padding + size);
-        abort();
     }
 
     arena->offset += padding;
@@ -2628,8 +3030,7 @@ void *fixed_arena_alloc_array(FixedArena *arena, size_t count, size_t element_si
     // Multiplication overflow check
     size_t total;
     if (count > 0 && element_size > SIZE_MAX / count) {
-        fprintf(stderr, "Array size overflow\n");
-        abort();
+        fds_log(FFATAL, "Array size overflow");
     }
     total = count * element_size;
     return fixed_arena_alloc(arena, total);
@@ -2733,7 +3134,7 @@ static inline void temp_arena_restore_mark(FixedArenaMark* mark) {
 IniConfig ini_parse_sv(SV content)
 {
     IniConfig config = {0};
-    
+
     // We allocate an arena for reading the file. 2 MB for INI is enough with a margin
     config.arena = fixed_arena_create(content.count + 2 * MB);
     
@@ -2794,7 +3195,7 @@ IniConfig ini_parse(const char *filepath) {
     
     SV content;
     if (fds_file_read_to_arena(filepath, &config.arena, &content) != 0) {
-        fprintf(stderr, "Помилка: не вдалося прочитати файл %s\n", filepath);
+        fds_log(FERROR, "Cannot read a file %s", filepath);
         return config;
     }
 
@@ -2990,6 +3391,8 @@ static int calc_block_size(size_t requested, size_t *total) {
     *total = ALIGN(raw);
     return 1;
 }
+
+
 static void init_heap(void) {
     heap_base = heap_mem;
     heap_size = HEAP_SIZE;
@@ -3289,6 +3692,47 @@ int heap_validate(void) {
 
 
 
+// Time utils fuctions Start ================================================================================================================
+// Повертає монотонний час у секундах з високою точністю (мікро/наносекунди)
+double fds_time_now(void) {
+#ifdef _WIN32
+    if (fds_g_timer_frequency == 0.0) {
+        LARGE_INTEGER freq;
+        QueryPerformanceFrequency(&freq);
+        fds_g_timer_frequency = (double)freq.QuadPart;
+    }
+    LARGE_INTEGER counter;
+    QueryPerformanceCounter(&counter);
+    return (double)counter.QuadPart / fds_g_timer_frequency;
+#else
+    struct timespec ts;
+    // CLOCK_MONOTONIC гарантує, що час завжди йде тільки вперед
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1000000000.0;
+#endif
+}
+
+// Додаткова зручна функція для затримки (sleep) у мілісекундах
+void fds_sleep_ms(int milliseconds) {
+#ifdef _WIN32
+    Sleep(milliseconds);
+#else
+    struct timespec ts;
+    ts.tv_sec = milliseconds / 1000;
+    ts.tv_nsec = (milliseconds % 1000) * 1000000;
+    nanosleep(&ts, NULL);
+#endif
+}
+// Time utils fuctions End ================================================================================================================
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3443,8 +3887,7 @@ int fds_file_append_sb(const char *filepath, const SB *sb) {
     return fds_file_append_sv(filepath, sb_to_sv(sb));
 }
 #ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
+
 #else
 #include <sys/stat.h>
 #endif
@@ -3484,8 +3927,6 @@ time_t get_file_mtime(const char *path)
 #endif
 }
 #ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
 wchar_t* fds_win32_utf8_to_utf16(const char* utf8_str) {
     if (!utf8_str) return NULL;
     

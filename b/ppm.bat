@@ -1,0 +1,1 @@
+gcc -Ofast -march=native -mtune=native -flto -pipe -static -static-libgcc src\ppm.c -o build\ppm.exe

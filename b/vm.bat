@@ -1,0 +1,1 @@
+gcc -Wall -Wextra -ggdb src\vm.c -o build\vm.exe && build\vm.exe
