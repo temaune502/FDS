@@ -8,6 +8,7 @@
 #include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdint.h>
 
 #define KB ((size_t)1024)
 #define MB (KB * 1024)
@@ -44,21 +45,16 @@
 
 #define FDS_PANIC(...) fds_log(FFATAL, __VA_ARGS__);
 
-
-
 #define FDS_LZ_MAGIC_0 0x46 // 'F'
 #define FDS_LZ_MAGIC_1 0x43 // 'C'
 
-#define FDS_LZ_MODE_RAW  0x00
+#define FDS_LZ_MODE_RAW 0x00
 #define FDS_LZ_MODE_LZSS 0x01
 
 #define FDS_LZ_WINDOW_SIZE 4096
-#define FDS_LZ_MIN_MATCH   3
-#define FDS_LZ_MAX_MATCH   18
-#define FDS_LZ_HASH_SIZE   4096
-
-
-
+#define FDS_LZ_MIN_MATCH 3
+#define FDS_LZ_MAX_MATCH 18
+#define FDS_LZ_HASH_SIZE 4096
 
 #define TODO(...)                                                             \
     do                                                                        \
@@ -69,6 +65,36 @@
     } while (0)
 
 #define fds_unused (void)
+
+#define fds_da_write(filepath, da) \
+    fds_da_write_file((filepath), (da)->items, (da)->count, sizeof(*(da)->items))
+
+#define fds_da_read(filepath, da) \
+    fds_da_read_file((filepath), (void **)&((da)->items), &((da)->count), sizeof(*(da)->items))
+
+// --- МАКРОСИ ДЛЯ ЗАПИСУ ---
+// Записує значення змінної (передається сама змінна, макрос сам бере її адресу &)
+#define fds_file_write_val(file, val) fds_file_write((file), &(val), sizeof(val))
+
+// --- МАКРОСИ ДЛЯ ЧИТАННЯ ---
+// Читає дані безпосередньо у змінну за її адресою
+#define fds_file_read_val(file, val_ptr) fds_file_read((file), (val_ptr), sizeof(*(val_ptr)))
+
+#define fds_file_skip_type(file, type) fds_file_skip((file), (int64_t)sizeof((type)))
+
+// Читає дані та повертає їх як результат (зручно для присвоєння: x = fds_file_get(f, int))
+#define fds_file_get(file, type) \
+    ({ type _tmp; fds_file_read((file), &_tmp, sizeof(type)) == sizeof(type) ? _tmp : (type){0}; })
+
+#define DA_FIELDS \
+    size_t count; \
+    size_t capacity
+
+#ifndef FDS_MALLOC
+#define FDS_MALLOC(sz) malloc(sz)
+#define FDS_REALLOC(ptr, sz) realloc(ptr, sz)
+#define FDS_FREE(ptr) free(ptr)
+#endif
 
 #ifndef FDS_ASSERT
 #define FDS_ASSERT(cond, msg) assert((cond) && (msg))
@@ -425,32 +451,266 @@ typedef struct
     size_t count;
 } FdsEventQueue;
 
-
-
-
 /////////////////////////////////////////////
 ////               Compression        ///////
 /////////////////////////////////////////////
-typedef enum {
-    FDS_CMP_ERROR      = -1,
-    FDS_CMP_STORED     =  0,
-    FDS_CMP_COMPRESSED =  1 
+typedef enum
+{
+    FDS_CMP_ERROR = -1,
+    FDS_CMP_STORED = 0,
+    FDS_CMP_COMPRESSED = 1
 } FdsCompressStatus;
 
+/////////////////////////////////////////////
+////               Bytes              ///////
+/////////////////////////////////////////////
+// A dynamically growing buffer for writing binary data.
+typedef struct
+{
+    uint8_t *data;   // Pointer to allocated memory
+    size_t size;     // Current number of bytes written
+    size_t capacity; // Total allocated capacity
+} FdsBytesBuilder;
 
+typedef struct
+{
+    const uint8_t *data;
+    size_t size;
+} FdsBytesView;
+/////////////////////////////////////////////
+////               File               ///////
+/////////////////////////////////////////////
 
+#define FDS_FILE_PTR(f) ((FILE *)(f).handle)
 
+typedef enum
+{
+    FDS_FILE_READ = 1 << 0,
+    FDS_FILE_WRITE = 1 << 1,
+    FDS_FILE_CREATE = 1 << 2,
+    FDS_FILE_APPEND = 1 << 3,
+} FdsFileFlags;
 
+#pragma pack(push, 1)
+typedef struct
+{
+    char magic[4];    // 4-байтний ідентифікатор формату
+    uint32_t version; // Версія структури даних
+} FdsFileHeader;
+#pragma pack(pop)
 
+typedef enum
+{
+    FDS_SEEK_SET = 0,
+    FDS_SEEK_CUR = 1,
+    FDS_SEEK_END = 2,
+} FdsSeekOrigin;
+
+typedef struct
+{
+    uintptr_t handle;
+    bool is_valid;
+} FdsFile;
+
+typedef enum
+{
+    FDS_MAP_READ = 1 << 0,
+    FDS_MAP_READ_WRITE = 1 << 1,
+} FdsMapFlags;
+
+typedef struct
+{
+    void *data;               // Вказівник на початок проєкції в RAM
+    size_t size;              // Точний розмір файлу в байтах
+    uintptr_t file_handle;    // OS file handle (int fd або HANDLE)
+    uintptr_t mapping_handle; // Потрібен тільки для Windows (HANDLE), на POSIX = 0
+    bool is_valid;
+} FdsMappedFile;
 //=================================================================================================================================
 //                                          Functions declaration
 //=================================================================================================================================
 
+// Bytes fuctions
+//  Creates a new builder with an optional initial capacity (0 is fine).
+//  e.g., FdsBytesBuilder bb = fds_bb_create(1024);
+FdsBytesBuilder fds_bb_create(size_t initial_capacity);
+
+// Frees the underlying memory of the builder.
+// e.g., fds_bb_destroy(&bb);
+void fds_bb_destroy(FdsBytesBuilder *bb);
+
+// Ensures the builder has enough capacity to add 'additional_size' bytes.
+// Automatically called by append functions, but useful for pre-allocating.
+void fds_bb_reserve(FdsBytesBuilder *bb, size_t additional_size);
+
+// Resets the size to 0 but keeps the allocated memory (capacity remains).
+void fds_bb_clear(FdsBytesBuilder *bb);
+
+// ============================================================================
+// BYTESVIEW INTEROP (Conversion)
+// ============================================================================
+
+// Converts a Builder into a non-owning View.
+// Note: The returned View becomes invalid if the Builder is destroyed or grows.
+// e.g., FdsBytesView final_data = fds_bb_to_view(&bb);
+FdsBytesView fds_bb_to_view(const FdsBytesBuilder *bb);
+
+// Creates a new Builder by copying all data from an existing View.
+// e.g., FdsBytesBuilder bb = fds_bb_from_view(my_view);
+FdsBytesBuilder fds_bb_from_view(FdsBytesView view);
+
+// Appends all data from a View into the Builder.
+// e.g., fds_bb_append_view(&bb, file_header_view);
+void fds_bb_append_view(FdsBytesBuilder *bb, FdsBytesView view);
+
+// ============================================================================
+// WRITING / APPENDING
+// ============================================================================
+
+// Appends a raw memory block to the builder.
+// e.g., fds_bb_append(&bb, &my_struct, sizeof(my_struct));
+void fds_bb_append(FdsBytesBuilder *bb, const void *data, size_t size);
+
+// Appends a single byte.
+// e.g., fds_bb_append_byte(&bb, 0xFF);
+void fds_bb_append_byte(FdsBytesBuilder *bb, uint8_t byte);
+
+// Appends a 16-bit unsigned integer (Little-Endian).
+void fds_bb_append_u16_le(FdsBytesBuilder *bb, uint16_t val);
+
+// Appends a 16-bit unsigned integer (Big-Endian / Network Order).
+void fds_bb_append_u16_be(FdsBytesBuilder *bb, uint16_t val);
+
+// Appends a 32-bit unsigned integer (Little-Endian).
+void fds_bb_append_u32_le(FdsBytesBuilder *bb, uint32_t val);
+
+// Appends a 32-bit unsigned integer (Big-Endian / Network Order).
+void fds_bb_append_u32_be(FdsBytesBuilder *bb, uint32_t val);
+
+// Appends a 64-bit unsigned integer
+void fds_bb_append_u64_le(FdsBytesBuilder *bb, uint64_t val);
+void fds_bb_append_u64_be(FdsBytesBuilder *bb, uint64_t val);
+
+// Appends a 32-bit float (IEEE 754) safely
+void fds_bb_append_f32_le(FdsBytesBuilder *bb, float val);
+void fds_bb_append_f32_be(FdsBytesBuilder *bb, float val);
+
+// Appends a 64-bit double (IEEE 754) safely
+void fds_bb_append_f64_le(FdsBytesBuilder *bb, double val);
+void fds_bb_append_f64_be(FdsBytesBuilder *bb, double val);
+
+// Повертає поточну позицію (offset) для майбутнього патчінгу
+size_t fds_bb_get_pos(const FdsBytesBuilder *bb);
+
+// Перезаписує 32-бітне число за вказаним зміщенням (без зміни розміру буфера)
+void fds_bb_patch_u32_le(FdsBytesBuilder *bb, size_t offset, uint32_t val);
+
+// Додає класичний C-рядок (з нуль-термінатором на кінці)
+void fds_bb_append_cstr(FdsBytesBuilder *bb, const char *str);
+
+// Додає рядок з префіксом довжини (u16)
+void fds_bb_append_string_u16(FdsBytesBuilder *bb, const char *str);
+
+bool fds_bb_save_to_file(const FdsBytesBuilder *bb, const char *filepath);
+
+// ============================================================================
+// CONSTRUCTORS
+// ============================================================================
+
+// Creates a BytesView from a raw data pointer and size.
+// e.g., fds_bv(buffer, 1024);
+FdsBytesView fds_bv(const void *data, size_t size);
+
+// Returns an empty BytesView (data = NULL, size = 0).
+FdsBytesView fds_bv_empty(void);
+
+// Creates a BytesView from a null-terminated C string.
+// Note: It calculates length up to, but not including, the '\0'.
+// e.g., fds_bv_from_cstr("PNG_MAGIC");
+FdsBytesView fds_bv_from_cstr(const char *str);
+
+// ============================================================================
+// SLICING & REGIONS (Returns a new view, does not mutate the original)
+// ============================================================================
+
+// Safely extracts a sub-region from the view. Clamps length to available size.
+// e.g., FdsBytesView payload = fds_bv_subview(packet, 12, 100); // skip 12 byte header
+FdsBytesView fds_bv_subview(FdsBytesView view, size_t offset, size_t length);
+
+// Returns a view containing the first 'count' bytes. Clamps to view.size.
+FdsBytesView fds_bv_take(FdsBytesView view, size_t count);
+
+// Returns a view skipping the first 'count' bytes. Clamps to view.size.
+// e.g., view = fds_bv_skip(view, 4); // skip 4 bytes of magic number
+FdsBytesView fds_bv_skip(FdsBytesView view, size_t count);
+
+// ============================================================================
+// COMPARISON & SEARCH
+// ============================================================================
+
+// Deep comparison of two byte views. Returns true if sizes and contents match exactly.
+bool fds_bv_equals(FdsBytesView a, FdsBytesView b);
+
+// Checks if the view starts with the given prefix.
+// e.g., fds_bv_has_prefix(file_data, fds_bv_from_cstr("PK\x03\x04")); // check ZIP magic
+bool fds_bv_has_prefix(FdsBytesView view, FdsBytesView prefix);
+
+// Checks if the view ends with the given suffix.
+bool fds_bv_has_suffix(FdsBytesView view, FdsBytesView suffix);
+
+// Finds the first occurrence of a specific byte. Returns index, or -1 if not found.
+// e.g., intptr_t null_pos = fds_bv_find_byte(view, 0x00);
+intptr_t fds_bv_find_byte(FdsBytesView view, uint8_t byte);
+
+// Finds the first occurrence of a byte pattern. Returns index, or -1 if not found.
+// e.g., intptr_t sig_pos = fds_bv_find_subview(view, fds_bv(signature, 4));
+intptr_t fds_bv_find_subview(FdsBytesView view, FdsBytesView pattern);
+
+// ============================================================================
+// STREAM PARSING (Mutates the view pointer/size directly to advance through data)
+// ============================================================================
+
+// Pops 1 byte from the front of the view and advances it. Returns false if empty.
+// e.g., uint8_t type; if (fds_bv_pop_byte(&stream, &type)) { ... }
+bool fds_bv_pop_byte(FdsBytesView *view, uint8_t *out_byte);
+
+// Pops 'count' bytes from the front, returning them as a new view, and advances the original view.
+// e.g., FdsBytesView header = fds_bv_pop_bytes(&stream, 16);
+FdsBytesView fds_bv_pop_bytes(FdsBytesView *view, size_t count);
+
+// Reads a 16-bit unsigned integer (Little-Endian) and advances the view by 2 bytes.
+bool fds_bv_read_u16_le(FdsBytesView *view, uint16_t *out_val);
+
+// Reads a 16-bit unsigned integer (Big-Endian / Network Order) and advances the view by 2 bytes.
+// e.g., uint16_t port; fds_bv_read_u16_be(&tcp_packet, &port);
+bool fds_bv_read_u16_be(FdsBytesView *view, uint16_t *out_val);
+
+// Reads a 32-bit unsigned integer (Little-Endian) and advances the view by 4 bytes.
+// e.g., uint32_t chunk_size; fds_bv_read_u32_le(&png_stream, &chunk_size);
+bool fds_bv_read_u32_le(FdsBytesView *view, uint32_t *out_val);
+
+// Reads a 32-bit unsigned integer (Big-Endian / Network Order) and advances the view by 4 bytes.
+bool fds_bv_read_u32_be(FdsBytesView *view, uint32_t *out_val);
+
+// Reads a 64-bit unsigned integer (Little-Endian / Big-Endian)
+bool fds_bv_read_u64_le(FdsBytesView *view, uint64_t *out_val);
+bool fds_bv_read_u64_be(FdsBytesView *view, uint64_t *out_val);
+
+// Reads a 32-bit float (IEEE 754) safely avoiding strict-aliasing UB
+bool fds_bv_read_f32_le(FdsBytesView *view, float *out_val);
+bool fds_bv_read_f32_be(FdsBytesView *view, float *out_val);
+
+// Reads a 64-bit double (IEEE 754)
+bool fds_bv_read_f64_le(FdsBytesView *view, double *out_val);
+bool fds_bv_read_f64_be(FdsBytesView *view, double *out_val);
+
+// Читає рядок, очікуючи u16 префікс довжини.
+// Повертає View, що вказує лише на текст (без копіювання!).
+bool fds_bv_read_string_u16(FdsBytesView *view, FdsBytesView *out_str_view);
 
 // Compression
 FdsCompressStatus fds_ext_compress_lz(FdsBytesView input, FdsBytesBuilder *out_builder);
-bool              fds_ext_decompress_lz(FdsBytesView input, FdsBytesBuilder *out_builder);
-
+bool fds_ext_decompress_lz(FdsBytesView input, FdsBytesBuilder *out_builder);
 
 // honestly, I don't remember why I wrote it, but for something important, so it should be left
 static inline int safe_add(size_t a, size_t b, size_t *res);
@@ -651,45 +911,83 @@ static bool sa_grow(StringArray *sa);
 
 // String Array fuctions End================================================================================================================
 
-
-
-
-
-
-
-
 // Event fuctions Start================================================================================================================
 // Ініціалізація та очищення
 FdsEventQueue fds_event_queue_init(FdsEvent *buffer, size_t capacity);
-void          fds_event_clear(FdsEventQueue *q);
+void fds_event_clear(FdsEventQueue *q);
 
 // Операції запису та читання
-bool          fds_event_push(FdsEventQueue *q, FdsEvent event);
-bool          fds_event_poll(FdsEventQueue *q, FdsEvent *out_event);
-size_t        fds_event_poll_many(FdsEventQueue *q, FdsEvent *events, size_t capacity);
-bool          fds_event_peek(const FdsEventQueue *q, FdsEvent *out_event);
+bool fds_event_push(FdsEventQueue *q, FdsEvent event);
+bool fds_event_poll(FdsEventQueue *q, FdsEvent *out_event);
+size_t fds_event_poll_many(FdsEventQueue *q, FdsEvent *events, size_t capacity);
+bool fds_event_peek(const FdsEventQueue *q, FdsEvent *out_event);
 
 // Пропуск / видалення подій
-bool          fds_event_discard(FdsEventQueue *q);
-size_t        fds_event_discard_many(FdsEventQueue *q, size_t count);
+bool fds_event_discard(FdsEventQueue *q);
+size_t fds_event_discard_many(FdsEventQueue *q, size_t count);
 
 // Інспекція стану
-bool          fds_event_is_empty(const FdsEventQueue *q);
-bool          fds_event_is_full(const FdsEventQueue *q);
-size_t        fds_event_count(const FdsEventQueue *q);
-size_t        fds_event_capacity(const FdsEventQueue *q);
-size_t        fds_event_remaining(const FdsEventQueue *q);
+bool fds_event_is_empty(const FdsEventQueue *q);
+bool fds_event_is_full(const FdsEventQueue *q);
+size_t fds_event_count(const FdsEventQueue *q);
+size_t fds_event_capacity(const FdsEventQueue *q);
+size_t fds_event_remaining(const FdsEventQueue *q);
 
 // Фабричні функції (створення з обнуленням union)
-FdsEvent      fds_event_make(FdsEventType type, uint64_t timestamp);
-FdsEvent      fds_event_make_i32(FdsEventType type, uint64_t timestamp, int32_t value);
-FdsEvent      fds_event_make_u32(FdsEventType type, uint64_t timestamp, uint32_t value);
-FdsEvent      fds_event_make_f32(FdsEventType type, uint64_t timestamp, float value);
-FdsEvent      fds_event_make_ptr(FdsEventType type, uint64_t timestamp, void *ptr);
+FdsEvent fds_event_make(FdsEventType type, uint64_t timestamp);
+FdsEvent fds_event_make_i32(FdsEventType type, uint64_t timestamp, int32_t value);
+FdsEvent fds_event_make_u32(FdsEventType type, uint64_t timestamp, uint32_t value);
+FdsEvent fds_event_make_f32(FdsEventType type, uint64_t timestamp, float value);
+FdsEvent fds_event_make_ptr(FdsEventType type, uint64_t timestamp, void *ptr);
 // Event fuctions End================================================================================================================
 
+// File fuctions Start================================================================================================================
+bool fds_file_read_bytes(const char *filepath, void **out_buf, size_t *out_size);
 
+// Створює новий файл (або перезаписує існуючий) і записує туди size байт з buf.
+bool fds_file_write_bytes(const char *filepath, const void *buf, size_t size);
 
+// Додає size байт з buf у кінець файлу.
+bool fds_file_append_bytes(const char *filepath, const void *buf, size_t size);
+
+bool fds_da_write_file(const char *filepath, const void *items, size_t count, size_t item_size);
+
+bool fds_da_read_file(const char *filepath, void **out_items, size_t *out_count, size_t item_size);
+
+SV sv_chop_by_delim(SV *sv, char delim);
+SV sv_trim_ext(SV sv);
+SV sv_trim_right_ext(SV sv);
+SV sv_trim_left_ext(SV sv);
+
+SV sv_chop_right(SV *sv, size_t n);
+SV sv_chop_left(SV *sv, size_t n);
+
+FdsFile fds_file_open(const char *path, uint32_t flags);
+void fds_file_close(FdsFile *file);
+
+size_t fds_file_read(FdsFile file, void *dst, size_t size);
+size_t fds_file_write(FdsFile file, const void *src, size_t size);
+
+bool fds_file_seek(FdsFile file, int64_t offset, FdsSeekOrigin origin);
+int64_t fds_file_tell(FdsFile file);
+int64_t fds_file_size(FdsFile file);
+void fds_file_flush(FdsFile file);
+
+char *fds_file_read_str(FdsFile file, void *(*allocator)(size_t));
+bool fds_file_write_str(FdsFile file, const char *str);
+
+bool fds_file_skip(FdsFile file, int64_t bytes_to_skip);
+
+bool fds_file_check_magic(FdsFile *file, const char expected_magic[4], uint32_t min_version);
+bool fds_file_write_magic(FdsFile *file, const char magic[4], uint32_t version);
+
+FdsMappedFile fds_file_map(const char *path, uint32_t flags);
+void fds_file_unmap(FdsMappedFile *mapped);
+void fds_file_flush_mapped(FdsMappedFile *mapped);
+FILE *fds_fmemopen_win32(void *buf, size_t size, const char *mode);
+FdsFile fds_file_from_mapped(FdsMappedFile *mapped);
+SV fds_file_mapped_as_sv(FdsMappedFile *mapped);
+// File fuctions End================================================================================================================
 
 // String builder fuctions Start================================================================================================================
 
@@ -885,7 +1183,7 @@ static void fds_append_pipe_data(char **buffer, size_t *len, size_t *cap, const 
 // Procs fuctions End ================================================================================================================
 
 // Start of implementation!!!
-#ifdef FDS_IMPLEMENTATION
+#ifdef FDS_IMPL
 
 #include <stdlib.h>
 #include <string.h>
@@ -1415,13 +1713,6 @@ int fds_cmd_run_Simp(const char *cmd_utf8, char **out_output)
 
 // Procs functions End ================================================================================================================
 
-
-
-
-
-
-
-
 // Event functions Start ================================================================================================================
 FdsEventQueue fds_event_queue_init(FdsEvent *buffer, size_t capacity)
 {
@@ -1611,14 +1902,1139 @@ FdsEvent fds_event_make_ptr(FdsEventType type, uint64_t timestamp, void *ptr)
     return e;
 }
 // Event functions End ================================================================================================================
+// Bytes builder adn view functions Start ================================================================================================================
 
+FdsBytesBuilder fds_bb_create(size_t initial_capacity)
+{
+    FdsBytesBuilder bb = {0};
+    if (initial_capacity > 0)
+    {
+        bb.data = (uint8_t *)FDS_MALLOC(initial_capacity);
+        FDS_ASSERT(bb.data != NULL, "BytesBuilder: memory allocation failed");
+        bb.capacity = initial_capacity;
+    }
+    return bb;
+}
 
+void fds_bb_destroy(FdsBytesBuilder *bb)
+{
+    FDS_ASSERT(bb != NULL, "BytesBuilder pointer is NULL");
+    if (bb->data)
+    {
+        FDS_FREE(bb->data);
+        bb->data = NULL;
+    }
+    bb->size = 0;
+    bb->capacity = 0;
+}
 
+void fds_bb_reserve(FdsBytesBuilder *bb, size_t additional_size)
+{
+    FDS_ASSERT(bb != NULL, "BytesBuilder pointer is NULL");
 
+    if (bb->size + additional_size <= bb->capacity)
+    {
+        return; // Already have enough space
+    }
 
+    // Standard growth strategy: double the capacity or match exact needs
+    size_t new_capacity = bb->capacity == 0 ? 16 : bb->capacity;
+    while (new_capacity < bb->size + additional_size)
+    {
+        new_capacity *= 2;
+    }
 
+    uint8_t *new_data = (uint8_t *)FDS_REALLOC(bb->data, new_capacity);
+    FDS_ASSERT(new_data != NULL, "BytesBuilder: memory reallocation failed");
 
+    bb->data = new_data;
+    bb->capacity = new_capacity;
+}
 
+void fds_bb_clear(FdsBytesBuilder *bb)
+{
+    FDS_ASSERT(bb != NULL, "BytesBuilder pointer is NULL");
+    bb->size = 0;
+}
+
+// --- BytesView Interop ---
+
+FdsBytesView fds_bb_to_view(const FdsBytesBuilder *bb)
+{
+    FDS_ASSERT(bb != NULL, "BytesBuilder pointer is NULL");
+    return fds_bv(bb->data, bb->size);
+}
+
+FdsBytesBuilder fds_bb_from_view(FdsBytesView view)
+{
+    FdsBytesBuilder bb = fds_bb_create(view.size);
+    if (view.size > 0 && view.data != NULL)
+    {
+        fds_bb_append(&bb, view.data, view.size);
+    }
+    return bb;
+}
+
+void fds_bb_append_view(FdsBytesBuilder *bb, FdsBytesView view)
+{
+    FDS_ASSERT(bb != NULL, "BytesBuilder pointer is NULL");
+    if (view.size > 0 && view.data != NULL)
+    {
+        fds_bb_append(bb, view.data, view.size);
+    }
+}
+
+// --- Appending ---
+
+void fds_bb_append(FdsBytesBuilder *bb, const void *data, size_t size)
+{
+    FDS_ASSERT(bb != NULL, "BytesBuilder pointer is NULL");
+    if (size == 0 || data == NULL)
+        return;
+
+    fds_bb_reserve(bb, size);
+    memcpy(bb->data + bb->size, data, size);
+    bb->size += size;
+}
+
+void fds_bb_append_byte(FdsBytesBuilder *bb, uint8_t byte)
+{
+    FDS_ASSERT(bb != NULL, "BytesBuilder pointer is NULL");
+    fds_bb_reserve(bb, 1);
+    bb->data[bb->size++] = byte;
+}
+
+void fds_bb_append_u16_le(FdsBytesBuilder *bb, uint16_t val)
+{
+    fds_bb_reserve(bb, 2);
+    bb->data[bb->size++] = (uint8_t)(val & 0xFF);
+    bb->data[bb->size++] = (uint8_t)((val >> 8) & 0xFF);
+}
+
+void fds_bb_append_u16_be(FdsBytesBuilder *bb, uint16_t val)
+{
+    fds_bb_reserve(bb, 2);
+    bb->data[bb->size++] = (uint8_t)((val >> 8) & 0xFF);
+    bb->data[bb->size++] = (uint8_t)(val & 0xFF);
+}
+
+void fds_bb_append_u32_le(FdsBytesBuilder *bb, uint32_t val)
+{
+    fds_bb_reserve(bb, 4);
+    bb->data[bb->size++] = (uint8_t)(val & 0xFF);
+    bb->data[bb->size++] = (uint8_t)((val >> 8) & 0xFF);
+    bb->data[bb->size++] = (uint8_t)((val >> 16) & 0xFF);
+    bb->data[bb->size++] = (uint8_t)((val >> 24) & 0xFF);
+}
+
+void fds_bb_append_u32_be(FdsBytesBuilder *bb, uint32_t val)
+{
+    fds_bb_reserve(bb, 4);
+    bb->data[bb->size++] = (uint8_t)((val >> 24) & 0xFF);
+    bb->data[bb->size++] = (uint8_t)((val >> 16) & 0xFF);
+    bb->data[bb->size++] = (uint8_t)((val >> 8) & 0xFF);
+    bb->data[bb->size++] = (uint8_t)(val & 0xFF);
+}
+void fds_bb_append_u64_le(FdsBytesBuilder *bb, uint64_t val)
+{
+    fds_bb_reserve(bb, 8);
+    bb->data[bb->size++] = (uint8_t)(val & 0xFF);
+    bb->data[bb->size++] = (uint8_t)((val >> 8) & 0xFF);
+    bb->data[bb->size++] = (uint8_t)((val >> 16) & 0xFF);
+    bb->data[bb->size++] = (uint8_t)((val >> 24) & 0xFF);
+    bb->data[bb->size++] = (uint8_t)((val >> 32) & 0xFF);
+    bb->data[bb->size++] = (uint8_t)((val >> 40) & 0xFF);
+    bb->data[bb->size++] = (uint8_t)((val >> 48) & 0xFF);
+    bb->data[bb->size++] = (uint8_t)((val >> 56) & 0xFF);
+}
+
+void fds_bb_append_u64_be(FdsBytesBuilder *bb, uint64_t val)
+{
+    fds_bb_reserve(bb, 8);
+    bb->data[bb->size++] = (uint8_t)((val >> 56) & 0xFF);
+    bb->data[bb->size++] = (uint8_t)((val >> 48) & 0xFF);
+    bb->data[bb->size++] = (uint8_t)((val >> 40) & 0xFF);
+    bb->data[bb->size++] = (uint8_t)((val >> 32) & 0xFF);
+    bb->data[bb->size++] = (uint8_t)((val >> 24) & 0xFF);
+    bb->data[bb->size++] = (uint8_t)((val >> 16) & 0xFF);
+    bb->data[bb->size++] = (uint8_t)((val >> 8) & 0xFF);
+    bb->data[bb->size++] = (uint8_t)(val & 0xFF);
+}
+
+void fds_bb_append_f32_le(FdsBytesBuilder *bb, float val)
+{
+    uint32_t temp;
+    memcpy(&temp, &val, sizeof(float));
+    fds_bb_append_u32_le(bb, temp);
+}
+
+void fds_bb_append_f32_be(FdsBytesBuilder *bb, float val)
+{
+    uint32_t temp;
+    memcpy(&temp, &val, sizeof(float));
+    fds_bb_append_u32_be(bb, temp);
+}
+
+void fds_bb_append_f64_le(FdsBytesBuilder *bb, double val)
+{
+    uint64_t temp;
+    memcpy(&temp, &val, sizeof(double));
+    fds_bb_append_u64_le(bb, temp);
+}
+
+void fds_bb_append_f64_be(FdsBytesBuilder *bb, double val)
+{
+    uint64_t temp;
+    memcpy(&temp, &val, sizeof(double));
+    fds_bb_append_u64_be(bb, temp);
+}
+
+size_t fds_bb_get_pos(const FdsBytesBuilder *bb)
+{
+    FDS_ASSERT(bb != NULL, "BytesBuilder is NULL");
+    return bb->size;
+}
+
+void fds_bb_patch_u32_le(FdsBytesBuilder *bb, size_t offset, uint32_t val)
+{
+    FDS_ASSERT(bb != NULL, "BytesBuilder is NULL");
+    FDS_ASSERT(offset + 4 <= bb->size, "Patch offset out of bounds");
+
+    bb->data[offset] = (uint8_t)(val & 0xFF);
+    bb->data[offset + 1] = (uint8_t)((val >> 8) & 0xFF);
+    bb->data[offset + 2] = (uint8_t)((val >> 16) & 0xFF);
+    bb->data[offset + 3] = (uint8_t)((val >> 24) & 0xFF);
+}
+
+// --- У fds_bytes_builder.h ---
+void fds_bb_append_cstr(FdsBytesBuilder *bb, const char *str)
+{
+    if (!str)
+        return;
+    size_t len = strlen(str);
+    fds_bb_append(bb, str, len + 1); // +1 для '\0'
+}
+
+void fds_bb_append_string_u16(FdsBytesBuilder *bb, const char *str)
+{
+    if (!str)
+    {
+        fds_bb_append_u16_le(bb, 0);
+        return;
+    }
+    size_t len = strlen(str);
+    FDS_ASSERT(len <= 0xFFFF, "String too long for u16 prefix");
+    fds_bb_append_u16_le(bb, (uint16_t)len);
+    fds_bb_append(bb, str, len);
+}
+
+bool fds_bb_save_to_file(const FdsBytesBuilder *bb, const char *filepath)
+{
+    FDS_ASSERT(bb != NULL, "BytesBuilder is NULL");
+    FDS_ASSERT(filepath != NULL, "Filepath is NULL");
+
+    if (bb->size == 0)
+        return true; // Нічого зберігати
+
+    FILE *file = fopen(filepath, "wb");
+    if (!file)
+        return false;
+
+    size_t written = fwrite(bb->data, 1, bb->size, file);
+    fclose(file);
+
+    return written == bb->size;
+}
+FdsBytesView fds_bv(const void *data, size_t size)
+{
+    return (FdsBytesView){.data = (const uint8_t *)data, .size = size};
+}
+
+FdsBytesView fds_bv_empty(void)
+{
+    return (FdsBytesView){.data = NULL, .size = 0};
+}
+
+FdsBytesView fds_bv_from_cstr(const char *str)
+{
+    if (!str)
+        return fds_bv_empty();
+    return fds_bv(str, strlen(str));
+}
+
+FdsBytesView fds_bv_subview(FdsBytesView view, size_t offset, size_t length)
+{
+    if (offset >= view.size)
+        return fds_bv_empty();
+    size_t available = view.size - offset;
+    size_t actual_len = length < available ? length : available;
+    return fds_bv(view.data + offset, actual_len);
+}
+
+FdsBytesView fds_bv_take(FdsBytesView view, size_t count)
+{
+    return fds_bv_subview(view, 0, count);
+}
+
+FdsBytesView fds_bv_skip(FdsBytesView view, size_t count)
+{
+    if (count >= view.size)
+        return fds_bv_empty();
+    return fds_bv(view.data + count, view.size - count);
+}
+
+bool fds_bv_equals(FdsBytesView a, FdsBytesView b)
+{
+    if (a.size != b.size)
+        return false;
+    if (a.data == b.data)
+        return true;
+    if (!a.data || !b.data)
+        return false;
+    return memcmp(a.data, b.data, a.size) == 0;
+}
+
+bool fds_bv_has_prefix(FdsBytesView view, FdsBytesView prefix)
+{
+    if (prefix.size > view.size)
+        return false;
+    return fds_bv_equals(fds_bv_take(view, prefix.size), prefix);
+}
+
+bool fds_bv_has_suffix(FdsBytesView view, FdsBytesView suffix)
+{
+    if (suffix.size > view.size)
+        return false;
+    return fds_bv_equals(fds_bv_subview(view, view.size - suffix.size, suffix.size), suffix);
+}
+
+intptr_t fds_bv_find_byte(FdsBytesView view, uint8_t byte)
+{
+    if (!view.data || view.size == 0)
+        return -1;
+    const void *ptr = memchr(view.data, byte, view.size);
+    if (!ptr)
+        return -1;
+    return (intptr_t)((const uint8_t *)ptr - view.data);
+}
+
+intptr_t fds_bv_find_subview(FdsBytesView view, FdsBytesView pattern)
+{
+    if (pattern.size == 0 || pattern.size > view.size)
+        return -1;
+    if (!view.data || !pattern.data)
+        return -1;
+
+    size_t max_idx = view.size - pattern.size;
+    for (size_t i = 0; i <= max_idx; ++i)
+    {
+        if (memcmp(view.data + i, pattern.data, pattern.size) == 0)
+        {
+            return (intptr_t)i;
+        }
+    }
+    return -1;
+}
+
+bool fds_bv_pop_byte(FdsBytesView *view, uint8_t *out_byte)
+{
+    FDS_ASSERT(view != NULL, "BytesView pointer is NULL");
+    if (view->size == 0 || !view->data)
+        return false;
+    if (out_byte)
+        *out_byte = view->data[0];
+    view->data++;
+    view->size--;
+    return true;
+}
+
+FdsBytesView fds_bv_pop_bytes(FdsBytesView *view, size_t count)
+{
+    FDS_ASSERT(view != NULL, "BytesView pointer is NULL");
+    size_t actual_count = count < view->size ? count : view->size;
+    FdsBytesView result = fds_bv(view->data, actual_count);
+    view->data += actual_count;
+    view->size -= actual_count;
+    return result;
+}
+
+bool fds_bv_read_u16_le(FdsBytesView *view, uint16_t *out_val)
+{
+    if (view->size < 2)
+        return false;
+    if (out_val)
+    {
+        *out_val = (uint16_t)view->data[0] | ((uint16_t)view->data[1] << 8);
+    }
+    view->data += 2;
+    view->size -= 2;
+    return true;
+}
+
+bool fds_bv_read_u16_be(FdsBytesView *view, uint16_t *out_val)
+{
+    if (view->size < 2)
+        return false;
+    if (out_val)
+    {
+        *out_val = ((uint16_t)view->data[0] << 8) | (uint16_t)view->data[1];
+    }
+    view->data += 2;
+    view->size -= 2;
+    return true;
+}
+
+bool fds_bv_read_u32_le(FdsBytesView *view, uint32_t *out_val)
+{
+    if (view->size < 4)
+        return false;
+    if (out_val)
+    {
+        *out_val = (uint32_t)view->data[0] | ((uint32_t)view->data[1] << 8) | ((uint32_t)view->data[2] << 16) | ((uint32_t)view->data[3] << 24);
+    }
+    view->data += 4;
+    view->size -= 4;
+    return true;
+}
+
+bool fds_bv_read_u32_be(FdsBytesView *view, uint32_t *out_val)
+{
+    if (view->size < 4)
+        return false;
+    if (out_val)
+    {
+        *out_val = ((uint32_t)view->data[0] << 24) | ((uint32_t)view->data[1] << 16) | ((uint32_t)view->data[2] << 8) | (uint32_t)view->data[3];
+    }
+    view->data += 4;
+    view->size -= 4;
+    return true;
+}
+
+bool fds_bv_read_u64_le(FdsBytesView *view, uint64_t *out_val)
+{
+    if (view->size < 8)
+        return false;
+    if (out_val)
+    {
+        *out_val = (uint64_t)view->data[0] | ((uint64_t)view->data[1] << 8) | ((uint64_t)view->data[2] << 16) | ((uint64_t)view->data[3] << 24) | ((uint64_t)view->data[4] << 32) | ((uint64_t)view->data[5] << 40) | ((uint64_t)view->data[6] << 48) | ((uint64_t)view->data[7] << 56);
+    }
+    view->data += 8;
+    view->size -= 8;
+    return true;
+}
+
+bool fds_bv_read_u64_be(FdsBytesView *view, uint64_t *out_val)
+{
+    if (view->size < 8)
+        return false;
+    if (out_val)
+    {
+        *out_val = ((uint64_t)view->data[0] << 56) | ((uint64_t)view->data[1] << 48) | ((uint64_t)view->data[2] << 40) | ((uint64_t)view->data[3] << 32) | ((uint64_t)view->data[4] << 24) | ((uint64_t)view->data[5] << 16) | ((uint64_t)view->data[6] << 8) | (uint64_t)view->data[7];
+    }
+    view->data += 8;
+    view->size -= 8;
+    return true;
+}
+
+bool fds_bv_read_f32_le(FdsBytesView *view, float *out_val)
+{
+    uint32_t temp;
+    if (!fds_bv_read_u32_le(view, &temp))
+        return false;
+    if (out_val)
+        memcpy(out_val, &temp, sizeof(float));
+    return true;
+}
+
+bool fds_bv_read_f32_be(FdsBytesView *view, float *out_val)
+{
+    uint32_t temp;
+    if (!fds_bv_read_u32_be(view, &temp))
+        return false;
+    if (out_val)
+        memcpy(out_val, &temp, sizeof(float));
+    return true;
+}
+
+bool fds_bv_read_f64_le(FdsBytesView *view, double *out_val)
+{
+    uint64_t temp;
+    if (!fds_bv_read_u64_le(view, &temp))
+        return false;
+    if (out_val)
+        memcpy(out_val, &temp, sizeof(double));
+    return true;
+}
+
+bool fds_bv_read_f64_be(FdsBytesView *view, double *out_val)
+{
+    uint64_t temp;
+    if (!fds_bv_read_u64_be(view, &temp))
+        return false;
+    if (out_val)
+        memcpy(out_val, &temp, sizeof(double));
+    return true;
+}
+bool fds_bv_read_string_u16(FdsBytesView *view, FdsBytesView *out_str_view)
+{
+    uint16_t len;
+    if (!fds_bv_read_u16_le(view, &len))
+        return false;
+
+    if (view->size < len)
+        return false; // Недостатньо даних
+
+    if (out_str_view)
+    {
+        *out_str_view = fds_bv(view->data, len);
+    }
+
+    view->data += len;
+    view->size -= len;
+    return true;
+}
+// Bytes builder adn view functions End ================================================================================================================
+
+// FIleIO functions Start ================================================================================================================
+SV sv_chop_by_delim(SV *sv, char delim)
+{
+    size_t i = 0;
+    while (i < sv->count && sv->data[i] != delim)
+    {
+        i += 1;
+    }
+
+    SV result = sv_from_parts(sv->data, i);
+
+    if (i < sv->count)
+    {
+        sv->count -= i + 1;
+        sv->data += i + 1;
+    }
+    else
+    {
+        sv->count -= i;
+        sv->data += i;
+    }
+
+    return result;
+}
+
+SV sv_chop_left(SV *sv, size_t n)
+{
+    if (n > sv->count)
+    {
+        n = sv->count;
+    }
+
+    SV result = sv_from_parts(sv->data, n);
+
+    sv->data += n;
+    sv->count -= n;
+
+    return result;
+}
+
+SV sv_chop_right(SV *sv, size_t n)
+{
+    if (n > sv->count)
+    {
+        n = sv->count;
+    }
+
+    SV result = sv_from_parts(sv->data + sv->count - n, n);
+
+    sv->count -= n;
+
+    return result;
+}
+
+SV sv_trim_left_ext(SV sv)
+{
+    size_t i = 0;
+    while (i < sv.count && isspace(sv.data[i]))
+    {
+        i += 1;
+    }
+
+    return sv_from_parts(sv.data + i, sv.count - i);
+}
+
+SV sv_trim_right_ext(SV sv)
+{
+    size_t i = 0;
+    while (i < sv.count && isspace(sv.data[sv.count - 1 - i]))
+    {
+        i += 1;
+    }
+
+    return sv_from_parts(sv.data, sv.count - i);
+}
+
+SV sv_trim_ext(SV sv)
+{
+    return sv_trim_right_ext(sv_trim_left_ext(sv));
+}
+
+bool fds_da_write_file(const char *filepath, const void *items, size_t count, size_t item_size)
+{
+    FILE *f = fopen(filepath, "wb");
+    if (!f)
+        return false;
+
+    // 1. Записуємо кількість елементів (заголовок)
+    if (fwrite(&count, sizeof(size_t), 1, f) != 1)
+    {
+        fclose(f);
+        return false;
+    }
+
+    // 2. Записуємо самі елементи з купи
+    if (count > 0 && items != NULL)
+    {
+        if (fwrite(items, item_size, count, f) != count)
+        {
+            fclose(f);
+            return false;
+        }
+    }
+
+    fclose(f);
+    return true;
+}
+
+bool fds_da_read_file(const char *filepath, void **out_items, size_t *out_count, size_t item_size)
+{
+    if (!filepath || !out_items || !out_count)
+        return false;
+
+    FILE *f = fopen(filepath, "rb");
+    if (!f)
+        return false;
+
+    // 1. Читаємо кількість елементів
+    size_t count = 0;
+    if (fread(&count, sizeof(size_t), 1, f) != 1)
+    {
+        fclose(f);
+        return false;
+    }
+
+    if (count == 0)
+    {
+        *out_items = NULL;
+        *out_count = 0;
+        fclose(f);
+        return true;
+    }
+
+    // 2. Виділяємо пам'ять під буфер
+    void *items = malloc(count * item_size);
+    if (!items)
+    {
+        fclose(f);
+        return false;
+    }
+
+    // 3. Зчитуємо елементи
+    if (fread(items, item_size, count, f) != count)
+    {
+        free(items);
+        fclose(f);
+        return false;
+    }
+
+    fclose(f);
+    *out_items = items;
+    *out_count = count;
+    return true;
+}
+
+bool fds_file_read_bytes(const char *filepath, void **out_buf, size_t *out_size)
+{
+    if (!filepath || !out_buf || !out_size)
+        return false;
+
+    *out_buf = NULL;
+    *out_size = 0;
+
+    FILE *f = fopen(filepath, "rb");
+    if (!f)
+        return false;
+
+    // Отримуємо розмір файлу
+    if (fseek(f, 0, SEEK_END) != 0)
+    {
+        fclose(f);
+        return false;
+    }
+
+    long size = ftell(f);
+    if (size < 0)
+    {
+        fclose(f);
+        return false;
+    }
+
+    fseek(f, 0, SEEK_SET);
+
+    // Якщо файл порожній — повертаємо успіх із NULL буфером
+    if (size == 0)
+    {
+        fclose(f);
+        return true;
+    }
+
+    void *buffer = malloc((size_t)size);
+    if (!buffer)
+    {
+        fclose(f);
+        return false;
+    }
+
+    size_t bytes_read = fread(buffer, 1, (size_t)size, f);
+    fclose(f);
+
+    if (bytes_read != (size_t)size)
+    {
+        free(buffer);
+        return false;
+    }
+
+    *out_buf = buffer;
+    *out_size = (size_t)size;
+    return true;
+}
+
+bool fds_file_write_bytes(const char *filepath, const void *buf, size_t size)
+{
+    if (!filepath)
+        return false;
+    if (size > 0 && !buf)
+        return false;
+
+    FILE *f = fopen(filepath, "wb");
+    if (!f)
+        return false;
+
+    if (size > 0)
+    {
+        size_t bytes_written = fwrite(buf, 1, size, f);
+        if (bytes_written != size)
+        {
+            fclose(f);
+            return false;
+        }
+    }
+
+    fclose(f);
+    return true;
+}
+
+bool fds_file_append_bytes(const char *filepath, const void *buf, size_t size)
+{
+    if (!filepath)
+        return false;
+    if (size == 0)
+        return true;
+    if (!buf)
+        return false;
+
+    FILE *f = fopen(filepath, "ab");
+    if (!f)
+        return false;
+
+    size_t bytes_written = fwrite(buf, 1, size, f);
+    fclose(f);
+
+    return bytes_written == size;
+}
+
+FdsFile fds_file_open(const char *path, uint32_t flags)
+{
+    FdsFile file = {.handle = 0, .is_valid = false};
+    if (!path)
+        return file;
+
+    const char *mode = "rb";
+
+    if ((flags & FDS_FILE_READ) && (flags & FDS_FILE_WRITE))
+    {
+        if (flags & FDS_FILE_CREATE)
+            mode = "w+b";
+        else if (flags & FDS_FILE_APPEND)
+            mode = "a+b";
+        else
+            mode = "r+b";
+    }
+    else if (flags & FDS_FILE_WRITE)
+    {
+        if (flags & FDS_FILE_APPEND)
+            mode = "ab";
+        else
+            mode = "wb";
+    }
+    else if (flags & FDS_FILE_APPEND)
+    {
+        mode = "ab";
+    }
+
+    FILE *f = fopen(path, mode);
+    if (f)
+    {
+        file.handle = (uintptr_t)f;
+        file.is_valid = true;
+    }
+
+    return file;
+}
+
+void fds_file_close(FdsFile *file)
+{
+    if (!file || !file->is_valid)
+        return;
+
+    FILE *f = FDS_FILE_PTR(*file);
+    if (f)
+        fclose(f);
+
+    file->handle = 0;
+    file->is_valid = false;
+}
+
+size_t fds_file_read(FdsFile file, void *dst, size_t size)
+{
+    if (!file.is_valid || !dst || size == 0)
+        return 0;
+    return fread(dst, 1, size, FDS_FILE_PTR(file));
+}
+
+size_t fds_file_write(FdsFile file, const void *src, size_t size)
+{
+    if (!file.is_valid || !src || size == 0)
+        return 0;
+    return fwrite(src, 1, size, FDS_FILE_PTR(file));
+}
+
+bool fds_file_seek(FdsFile file, int64_t offset, FdsSeekOrigin origin)
+{
+    if (!file.is_valid)
+        return false;
+
+    int std_origin = SEEK_SET;
+    if (origin == FDS_SEEK_CUR)
+        std_origin = SEEK_CUR;
+    if (origin == FDS_SEEK_END)
+        std_origin = SEEK_END;
+
+#if defined(_WIN32)
+    return _fseeki64(FDS_FILE_PTR(file), offset, std_origin) == 0;
+#else
+    return fseeko(FDS_FILE_PTR(file), (off_t)offset, std_origin) == 0;
+#endif
+}
+
+int64_t fds_file_tell(FdsFile file)
+{
+    if (!file.is_valid)
+        return -1;
+
+#if defined(_WIN32)
+    return _ftelli64(FDS_FILE_PTR(file));
+#else
+    return (int64_t)ftello(FDS_FILE_PTR(file));
+#endif
+}
+
+int64_t fds_file_size(FdsFile file)
+{
+    if (!file.is_valid)
+        return -1;
+
+    int64_t current = fds_file_tell(file);
+    if (current < 0)
+        return -1;
+
+    if (!fds_file_seek(file, 0, FDS_SEEK_END))
+        return -1;
+
+    int64_t size = fds_file_tell(file);
+    fds_file_seek(file, current, FDS_SEEK_SET);
+
+    return size;
+}
+
+void fds_file_flush(FdsFile file)
+{
+    if (!file.is_valid)
+        return;
+    fflush(FDS_FILE_PTR(file));
+}
+
+bool fds_file_write_magic(FdsFile *file, const char magic[4], uint32_t version)
+{
+    if (!file || !file->is_valid)
+        return false;
+
+    FdsFileHeader header;
+    memcpy(header.magic, magic, 4);
+    header.version = version;
+
+    size_t written = fds_file_write(*file, &header, sizeof(FdsFileHeader));
+    return written == sizeof(FdsFileHeader);
+}
+
+bool fds_file_skip(FdsFile file, int64_t bytes_to_skip)
+{
+    // Якщо просити пропустити 0 байт — це успіх, нічого робити не треба
+    if (bytes_to_skip == 0)
+        return true;
+
+    // Забороняємо відмотувати файл назад через skip (для цього є чіткий seek)
+    if (bytes_to_skip < 0)
+        return false;
+
+    return fds_file_seek(file, bytes_to_skip, FDS_SEEK_CUR);
+}
+
+bool fds_file_check_magic(FdsFile *file, const char expected_magic[4], uint32_t min_version)
+{
+    if (!file || !file->is_valid)
+        return false;
+
+    FdsFileHeader header = {0};
+    size_t read_bytes = fds_file_read(*file, &header, sizeof(FdsFileHeader));
+
+    if (read_bytes != sizeof(FdsFileHeader))
+    {
+        return false;
+    }
+
+    if (memcmp(header.magic, expected_magic, 4) != 0)
+    {
+        return false;
+    }
+
+    if (header.version < min_version)
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool fds_file_write_str(FdsFile file, const char *str)
+{
+    if (!str)
+        return false;
+    uint32_t len = (uint32_t)strlen(str);
+    if (fds_file_write(file, &len, sizeof(len)) != sizeof(len))
+        return false;
+    return fds_file_write(file, str, len) == len;
+}
+
+// Повертає зліпок рядка
+char *fds_file_read_str(FdsFile file, void *(*allocator)(size_t))
+{
+    uint32_t len = 0;
+    if (fds_file_read(file, &len, sizeof(len)) != sizeof(len))
+        return NULL;
+    char *buf = allocator(len + 1);
+    if (!buf)
+        return NULL;
+    if (fds_file_read(file, buf, len) != len)
+        return NULL;
+    buf[len] = '\0';
+    return buf;
+}
+
+#if defined(_WIN32)
+#else
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
+FdsMappedFile fds_file_map(const char *path, uint32_t flags)
+{
+    FdsMappedFile mapped = {0};
+    if (!path)
+        return mapped;
+
+    bool writable = (flags & FDS_MAP_READ_WRITE) != 0;
+
+#if defined(_WIN32)
+    DWORD access = GENERIC_READ | (writable ? GENERIC_WRITE : 0);
+    DWORD share = FILE_SHARE_READ;
+    DWORD page_prot = writable ? PAGE_READWRITE : PAGE_READONLY;
+    DWORD map_access = writable ? FILE_MAP_ALL_ACCESS : FILE_MAP_READ;
+
+    HANDLE hFile = CreateFileA(path, access, share, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE)
+        return mapped;
+
+    LARGE_INTEGER file_size;
+    if (!GetFileSizeEx(hFile, &file_size) || file_size.QuadPart == 0)
+    {
+        CloseHandle(hFile);
+        return mapped;
+    }
+
+    HANDLE hMapping = CreateFileMappingA(hFile, NULL, page_prot, 0, 0, NULL);
+    if (!hMapping)
+    {
+        CloseHandle(hFile);
+        return mapped;
+    }
+
+    void *ptr = MapViewOfFile(hMapping, map_access, 0, 0, 0);
+    if (!ptr)
+    {
+        CloseHandle(hMapping);
+        CloseHandle(hFile);
+        return mapped;
+    }
+
+    mapped.data = ptr;
+    mapped.size = (size_t)file_size.QuadPart;
+    mapped.file_handle = (uintptr_t)hFile;
+    mapped.mapping_handle = (uintptr_t)hMapping;
+    mapped.is_valid = true;
+
+#else // POSIX (Linux / macOS)
+    int open_flags = writable ? O_RDWR : O_RDONLY;
+    int prot = PROT_READ | (writable ? PROT_WRITE : 0);
+
+    int fd = open(path, open_flags);
+    if (fd < 0)
+        return mapped;
+
+    struct stat st;
+    if (fstat(fd, &st) < 0 || st.st_size == 0)
+    {
+        close(fd);
+        return mapped;
+    }
+
+    void *ptr = mmap(NULL, st.st_size, prot, MAP_SHARED, fd, 0);
+    if (ptr == MAP_FAILED)
+    {
+        close(fd);
+        return mapped;
+    }
+
+    mapped.data = ptr;
+    mapped.size = (size_t)st.st_size;
+    mapped.file_handle = (uintptr_t)fd;
+    mapped.mapping_handle = 0;
+    mapped.is_valid = true;
+#endif
+
+    return mapped;
+}
+
+void fds_file_unmap(FdsMappedFile *mapped)
+{
+    if (!mapped || !mapped->is_valid)
+        return;
+
+#if defined(_WIN32)
+    UnmapViewOfFile(mapped->data);
+    CloseHandle((HANDLE)mapped->mapping_handle);
+    CloseHandle((HANDLE)mapped->file_handle);
+#else
+    munmap(mapped->data, mapped->size);
+    close((int)mapped->file_handle);
+#endif
+
+    mapped->data = NULL;
+    mapped->size = 0;
+    mapped->is_valid = false;
+}
+
+// Примусове скидання модифікованих сторінок пам'яті на диск
+void fds_file_flush_mapped(FdsMappedFile *mapped)
+{
+    if (!mapped || !mapped->is_valid)
+        return;
+
+#if defined(_WIN32)
+    FlushViewOfFile(mapped->data, mapped->size);
+#else
+    msync(mapped->data, mapped->size, MS_SYNC);
+#endif
+}
+
+#if defined(_WIN32)
+#include <io.h>
+#include <fcntl.h>
+
+FILE *fds_fmemopen_win32(void *buf, size_t size, const char *mode)
+{
+    // 1. Створюємо анонімний "пайп" (канал) у пам'яті, який ОС сприймає як файл
+    HANDLE hRead, hWrite;
+    if (!CreatePipe(&hRead, &hWrite, NULL, (DWORD)size))
+        return NULL;
+
+    // 2. Якщо в нас є початкові дані, записуємо їх у канал
+    if (buf && size > 0)
+    {
+        DWORD written;
+        WriteFile(hWrite, buf, (DWORD)size, &written, NULL);
+    }
+    CloseHandle(hWrite); // Закриваємо сторону запису, щоб потік знав, де кінець
+
+    // 3. Конвертуємо Windows HANDLE у стандартний файловий дескриптор C (fd)
+    int fd = _open_osfhandle((intptr_t)hRead, _O_RDONLY | _O_BINARY);
+    if (fd == -1)
+    {
+        CloseHandle(hRead);
+        return NULL;
+    }
+
+    // 4. Перетворюємо дескриптор у звичайний FILE*
+    FILE *f = _fdopen(fd, mode);
+    if (!f)
+    {
+        _close(fd);
+        return NULL;
+    }
+
+    return f;
+}
+#define fmemopen fds_fmemopen_win32
+#endif
+
+// Конвертер: перетворює FdsMappedFile у звичайний FdsFile
+
+FdsFile fds_file_from_mapped(FdsMappedFile *mapped)
+{
+    FdsFile file = {.handle = 0, .is_valid = false};
+    if (!mapped || !mapped->is_valid)
+        return file;
+
+    // Створюємо FILE* потік поверх пам'яті mmap
+    FILE *f = fmemopen(mapped->data, mapped->size, "rwb");
+    if (f)
+    {
+        file.handle = (uintptr_t)f;
+        file.is_valid = true;
+    }
+
+    return file;
+}
+
+// Перетворення мапленого файлу в StringView за 1 виклик
+SV fds_file_mapped_as_sv(FdsMappedFile *mapped)
+{
+    if (!mapped || !mapped->is_valid)
+        return (SV){0};
+    return (SV){
+        .data = (const char *)mapped->data,
+        .count = mapped->size};
+}
+// FIleIO functions End ================================================================================================================
 
 // String Array functions Start ================================================================================================================
 
@@ -3148,9 +4564,6 @@ void flagset_usage(FlagSet *fs)
 
 // Flag parser fuctions End ================================================================================================================
 
-
-
-
 // Compression fuctions Start ================================================================================================================
 FdsCompressStatus fds_ext_compress_lz(FdsBytesView input, FdsBytesBuilder *out_builder)
 {
@@ -3412,14 +4825,6 @@ bool fds_ext_decompress_lz(FdsBytesView input, FdsBytesBuilder *out_builder)
 #undef FDS_DECOMP_FAIL
 }
 // Compression fuctions End ================================================================================================================
-
-
-
-
-
-
-
-
 
 // Chunked arena fuctions Start ================================================================================================================
 
@@ -5285,5 +6690,5 @@ void fds_dir_iter_close(FdsDirIter *iter)
 #endif
 
 // FDS files and folders fuctions End ================================================================================================================
-#endif // FDS_IMPLEMENTATION
+#endif // FDS_IMPL
 #endif // FDS_H

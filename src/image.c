@@ -1,11 +1,7 @@
-#define FDS_IMPLEMENTATION
+// #define FDS_IMPL
 #include "fds.h"
-#define FDS_EXT_IMPL
-#include "fds_ext.h"
-#define FDS_EXT_BYTES_IMPL
-#include "fds_ext_bytes.h"
 
-
+#include <string.h>
 int main()
 {
     size_t image_x = 2048/4;
