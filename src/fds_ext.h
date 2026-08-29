@@ -10,8 +10,6 @@
 #include <ctype.h>
 
 
-
-
 typedef enum {
     FDS_FILE_READ   = 1 << 0,
     FDS_FILE_WRITE  = 1 << 1,
