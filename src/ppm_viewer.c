@@ -1,10 +1,7 @@
 
 #include "fds.h"
-
 #include "fds_ext_ppm.h"
-
 #include "raylib/include/raylib.h"
-
 #include <string.h>
 
 int main()

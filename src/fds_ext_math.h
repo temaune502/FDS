@@ -21,7 +21,7 @@
 #endif
 
 #ifndef FDS_MATH_DEF
-    #define FDS_MATH_DEF extern
+    #define FDS_MATH_DEF extern inline
 #endif
 
 #define FDS_PI          3.14159265358979323846f

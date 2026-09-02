@@ -1,5 +1,5 @@
 /*
-    fds_ext_socket.h — Advanced TCP Socket & Stream Wrapper (FDS Extension).
+    //fds_ext_socket.h — Advanced TCP Socket & Stream Wrapper (FDS Extension).
     
     Features:
     - Cross-platform WinSock2 / POSIX abstractions.
@@ -13,7 +13,48 @@
        #define FDS_EXT_SOCKET_IMPL
        #include "fds_ext_socket.h"
 */
+/* Exampl
 
+#define FDS_EXT_SOCKET_IMPL
+#include "fds_ext_socket.h"
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    if (!fds_net_init()) return 1;
+
+    // Підключення до прикладу сайту на 80 порт
+    FdsSocket sock = fds_socket_connect("example.com", 80);
+    if (!fds_socket_valid(sock)) {
+        printf("Помилка підключення до хоста\n");
+        fds_net_cleanup();
+        return 1;
+    }
+
+    // Формування HTTP GET запиту
+    char request[512];
+    snprintf(request, sizeof(request), 
+        "GET / HTTP/1.1\r\n"
+        "Host: example.com\r\n"
+        "Connection: close\r\n\r\n");
+
+    fds_socket_send_raw(sock, request, strlen(request));
+
+    // Читання відповіді
+    char response[1024];
+    FdsSocketIO io;
+    while ((io = fds_socket_recv_raw(sock, response, sizeof(response) - 1)).result == FDS_SOCK_RES_OK) {
+        response[io.size] = '\0';
+        printf("%s", response);
+    }
+
+    fds_socket_close(&sock);
+    fds_net_cleanup();
+    return 0;
+}
+
+
+*/
 #ifndef FDS_EXT_SOCKET_H
 #define FDS_EXT_SOCKET_H
 
