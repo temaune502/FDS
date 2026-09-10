@@ -7,4 +7,5 @@ test_fixed_arena.exe
 test_temp_arena.exe
 test_chunked_arena.exe
 test_alloc.exe
+test_onyx_format.exe
 cd ..

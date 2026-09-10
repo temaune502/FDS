@@ -1,0 +1,1 @@
+gcc -std=c11 -Wall -Wextra -ggdb -O0 src\builb.c -o build\builb.exe -lws2_32 -static -static-libgcc && build\builb.exe

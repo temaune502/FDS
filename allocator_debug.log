@@ -1,0 +1,161 @@
+=== Allocator stats ===
+Alloc count:        4230
+Realloc count:      0
+Free count:         4230
+Temp alloc calls:   1014
+Temp new blocks:    323
+Temp reuse count:   691
+Permanent blocks:   0
+=== Allocator stats ===
+Current allocated:  536616 bytes
+Peak allocated:     971316 bytes
+Total allocated:    4893912 bytes
+Total freed:        4357296 bytes
+=======================
+=== Allocator stats ===
+=== Leak report for allocator 00000255A3A20B20 ===
+No non-permanent leaks detected.
+===================================
+Alloc count:        4204
+Realloc count:      0
+Free count:         4204
+Temp alloc calls:   1058
+Temp new blocks:    351
+Temp reuse count:   707
+Permanent blocks:   0
+Current allocated:  581144 bytes
+Peak allocated:     1040837 bytes
+Total allocated:    4932350 bytes
+Total freed:        4351206 bytes
+=======================
+=== Allocator stats ===
+=== Leak report for allocator 00000255A3A20C80 ===
+No non-permanent leaks detected.
+===================================
+Alloc count:        4187
+Realloc count:      0
+Free count:         4187
+Temp alloc calls:   1057
+Temp new blocks:    337
+Temp reuse count:   720
+Permanent blocks:   0
+Current allocated:  560249 bytes
+Peak allocated:     946492 bytes
+Total allocated:    4863842 bytes
+Total freed:        4303593 bytes
+=======================
+Alloc count:        4188
+Realloc count:      0
+Free count:         4188
+Temp alloc calls:   1053
+Temp new blocks:    337
+Temp reuse count:   716
+Permanent blocks:   0
+Current allocated:  542561 bytes
+Peak allocated:     979736 bytes
+Total allocated:    4815709 bytes
+Total freed:        4273148 bytes
+=======================
+=== Leak report for allocator 00000255A3A20DE0 ===
+No non-permanent leaks detected.
+===================================
+=== Leak report for allocator 00000255A3A205A0 ===
+No non-permanent leaks detected.
+===================================
+=== Allocator stats ===
+Alloc count:        4211
+Realloc count:      0
+Free count:         4211
+Temp alloc calls:   1027
+Temp new blocks:    329
+Temp reuse count:   698
+Permanent blocks:   0
+Current allocated:  550327 bytes
+Peak allocated:     925167 bytes
+Total allocated:    4848036 bytes
+Total freed:        4297709 bytes
+=======================
+=== Leak report for allocator 00000255A3912DD0 ===
+No non-permanent leaks detected.
+=== Allocator stats ===
+===================================
+Alloc count:        4215
+Realloc count:      0
+Free count:         4215
+Temp alloc calls:   1032
+Temp new blocks:    341
+Temp reuse count:   691
+Permanent blocks:   0
+Current allocated:  546254 bytes
+Peak allocated:     947600 bytes
+Total allocated:    4847105 bytes
+Total freed:        4300851 bytes
+=======================
+=== Leak report for allocator 00000255A3913AE0 ===
+No non-permanent leaks detected.
+===================================
+=== Allocator stats ===
+Alloc count:        4212
+Realloc count:      0
+Free count:         4212
+Temp alloc calls:   1019
+Temp new blocks:    324
+Temp reuse count:   695
+Permanent blocks:   0
+Current allocated:  541861 bytes
+Peak allocated:     913195 bytes
+Total allocated:    4806824 bytes
+Total freed:        4264963 bytes
+=======================
+=== Leak report for allocator 00000255A3913B90 ===
+No non-permanent leaks detected.
+===================================
+=== Allocator stats ===
+Alloc count:        4200
+Realloc count:      0
+Free count:         4200
+Temp alloc calls:   1056
+Temp new blocks:    327
+Temp reuse count:   729
+Permanent blocks:   0
+Current allocated:  538089 bytes
+Peak allocated:     977655 bytes
+Total allocated:    4849709 bytes
+Total freed:        4311620 bytes
+=======================
+=== Leak report for allocator 00000255A3912380 ===
+No non-permanent leaks detected.
+===================================
+=== Leak report for allocator 00000255A3496B70 ===
+LEAK: block of 200 bytes allocated at src\fds2_test.c:178
+Total non-permanent leaks: 1
+===================================
+=== Allocator stats ===
+Alloc count:        14323
+Realloc count:      150
+Free count:         14321
+Temp alloc calls:   0
+Temp new blocks:    0
+Temp reuse count:   0
+Permanent blocks:   1
+Current allocated:  500 bytes
+Peak allocated:     17702876 bytes
+Total allocated:    29339952 bytes
+Total freed:        29339452 bytes
+=======================
+==================================================
+      FDS2 Allocator Heavy Stress Test Suite      
+==================================================
+
+[1/4] Running Heavy Churn & Integrity Test (20000 ops)...
+     OK!
+[2/4] Running Realloc Torture Test...
+     OK!
+[3/4] Running Multithreaded Isolation Test (8 threads)...
+     OK!
+[4/4] Running Macro & Tracking Leak Sanity Check...
+
+--- EXPECTED LEAK REPORT (1 intentional leak of 200 bytes) ---
+--------------------------------------------------------------
+
+ALL STRESS TESTS PASSED SUCCESSFULLY!
