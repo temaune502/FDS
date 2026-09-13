@@ -2,12 +2,26 @@
 #define FDS2_ALLOCATOR_H
 
 #include <stddef.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef struct fds2_allocator fds2_allocator;
+
+static inline bool fds2_size_add_overflow(size_t left, size_t right, size_t *result) {
+    if (left > SIZE_MAX - right) return true;
+    if (result) *result = left + right;
+    return false;
+}
+
+static inline bool fds2_size_mul_overflow(size_t left, size_t right, size_t *result) {
+    if (left != 0 && right > SIZE_MAX / left) return true;
+    if (result) *result = left * right;
+    return false;
+}
 
 typedef struct fds2_allocator_stats {
     size_t alloc_count;
