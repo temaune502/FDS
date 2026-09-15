@@ -1,0 +1,29 @@
+{
+  "name": "mica-config",
+  "displayName": "Mica/Onyx Configuration Format",
+  "description": "Syntax highlighting for .mica/.mic configuration files",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "mica",
+        "aliases": ["Mica", ""],
+        "extensions": [".mic", ".mica"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "mica",
+        "scopeName": "source.mica",
+        "path": "./syntaxes/mica.tmLanguage.json"
+      }
+    ]
+  }
+}

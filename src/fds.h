@@ -34,7 +34,6 @@
 #ifndef ALIGNMENT
 #define ALIGNMENT 16 /* must be a power of two */
 #endif
-
 #define ALIGN(s) (((size_t)(s) + (ALIGNMENT - 1)) & ~((size_t)(ALIGNMENT - 1)))
 
 #define HEADER_SIZE ALIGN(sizeof(block_t))
@@ -1184,6 +1183,8 @@ static void fds_append_pipe_data(char **buffer, size_t *len, size_t *cap, const 
 
 // Start of implementation!!!
 #ifdef FDS_IMPL
+
+
 
 #include <stdlib.h>
 #include <string.h>
