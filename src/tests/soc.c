@@ -81,7 +81,6 @@ int main()
             printf("Successfully sent %d bytes to the client.\n", bytesSent);
         }
 
-    // Перетворюємо IP-адресу клієнта у читаємий вигляд
     // char clientIP[INET_ADDRSTRLEN];
     // getnameinfo((struct sockaddr*)&clientAddr, clientAddrLen, clientIP, sizeof(clientIP), NULL, 0, NI_NUMERICHOST);
     // printf("Client connected from IP: %s, Port: %d\n", clientIP, ntohs(clientAddr.sin_port));
