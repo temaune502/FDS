@@ -1,14 +1,11 @@
 #define DEBUG_MEM
 #define FDS_IMPL
-#include "fds__cpp.h"
+#include "fds.h"
 
 
 int main()
 {
-
-
     SB conf {};
-
 
     if(!fds_read_entire_file("config.ini", &conf.items, &conf.count)) fds_log(FFATAL, "Could not read file!");
 
