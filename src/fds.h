@@ -1,11 +1,23 @@
 #ifndef FDS_H
 #define FDS_H
 
+// #ifndef DANGER_THINGS_OFF
+
+// // Very DANGER but useful
+// #pragma GCC system_header
+
+// #endif
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+
 #pragma once
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+
 
 
 #include <stdalign.h>
@@ -1293,7 +1305,7 @@ char *fds_internal_utf16_to_utf8(const wchar_t *utf16_str)
     return str;
 }
 
-#pragma GCC diagnostic pop
+// #pragma GCC diagnostic pop
 // Ініціалізація консолі та нормалізація argv до UTF-8
 void fds_cli_init(int *argc, char ***argv)
 {
@@ -6365,9 +6377,15 @@ void fds_allocator_print_stats(fds_allocator *a) {
 #endif
 
 
+
+
 // FDS files and folders fuctions End ================================================================================================================
 #endif // FDS_IMPL
+
 #ifdef __cplusplus
 }
 #endif
+
+#pragma GCC diagnostic pop
+
 #endif // FDS_H
