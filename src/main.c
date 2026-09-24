@@ -1,8 +1,74 @@
 #define FDS_IMPL
 #include "fds.h"
 
+#define fds_cmd_run(cmd)    \
+    fds_cmd_run_ext((cmd)); \
+    fds_log(FINFO, "Cmd: %s", (cmd));
+
 #define Fds_Cmd StringArray
 #define fds_cmd_append(a,b)  sa_push((a), (b))
+#define fds_cmd_free(a)      sa_free((a))
+
+bool fds_cmd_run_detached(Fds_Cmd *cmd) {
+    // Збираємо аргументи команди в один загальний рядок
+    char *joined = sa_join(cmd, " ");
+    wchar_t *wcmd = fds_internal_utf8_to_utf16(joined); // або ваш еквівалент конвертації
+    
+    STARTUPINFOW si = {0};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi = {0};
+
+    // Запускаємо процес асинхронно
+    BOOL success = CreateProcessW(
+        NULL,             // Локальний шлях до модуля (можна NULL, якщо передано у командному рядку)
+        wcmd,             // Командний рядок
+        NULL,             // Process security attributes
+        NULL,             // Thread security attributes
+        FALSE,            // Успадкування дескрипторів (не потрібно)
+        0,                // Прапорці створення (наприклад, CREATE_NO_WINDOW якщо треба без консолі)
+        NULL,             // Новий блок оточення (використовувати поточний)
+        NULL,             // Робоча директорія (успадкувати поточну)
+        &si,              // STARTUPINFO
+        &pi               // PROCESS_INFORMATION
+    );
+
+    // Звільняємо тимчасовий рядок, якщо він виділявся динамічно
+    // free(joined); 
+    // free(wcmd);
+
+    if (!success) {
+        return false;
+    }
+
+    // Головний секрет «неочікування»: ми закриваємо хендли відразу. 
+    // ОС сама знищить їх, коли задіяний процес завершиться, а наш 
+    // поточний процес не буде блокуватись і витрачати пам'ять на утримання хендлів.
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    return true;
+}
+
+
+int fds_needs_rebuild(const char *binary_path, const char *source_path) {
+    struct stat binary_stat = {0};
+    
+    // Якщо бінарного файлу ще немає на диску — його треба зібрати
+    if (stat(binary_path, &binary_stat) < 0) {
+        return 1; 
+    }
+
+    struct stat source_stat = {0};
+    // Якщо вихідний файл не знайдено — це помилка
+    if (stat(source_path, &source_stat) < 0) {
+        fprintf(stderr, "ERROR: Failed to stat source file %s\n", source_path);
+        return -1;
+    }
+
+    // Порівнюємо час модифікації (mtime)
+    // Якщо джерело новіше за бінарник — потрібен ребілд
+    return source_stat.st_mtime > binary_stat.st_mtime;
+}
 
 void fds_go_rebuild_urself(int argc, char **argv, const char *source_path) {
     const char *binary_path = argv[0];
@@ -37,13 +103,14 @@ void fds_go_rebuild_urself(int argc, char **argv, const char *source_path) {
     fds_cmd_append(&cmd, "-o");
     fds_cmd_append(&cmd, temp_binary_path);
     // Додайте інші необхідні флаги чи додаткові файли через ваші буфери/масиви
-
-    if (!fds_cmd_run(&cmd)) {
+    fds_cmd_result resu = fds_cmd_run_ext(sa_join(&cmd, " "));
+    if (resu.exit_code != 0) {
         // Компіляція провалилася — просто чистимо тимчасовий файл і падаємо
         remove(temp_binary_path);
         fds_cmd_free(&cmd);
         exit(1);
     }
+    fds_cmd_result_free(&resu);
     fds_cmd_free(&cmd);
 
     // 3. Безпечна ротація файлів для Windows та Linux
@@ -74,11 +141,12 @@ void fds_go_rebuild_urself(int argc, char **argv, const char *source_path) {
     for (int i = 1; i < argc; ++i) {
         fds_cmd_append(&restart_cmd, argv[i]);
     }
-
-    if (!fds_cmd_run(&restart_cmd)) {
-        fds_cmd_free(&restart_cmd);
-        exit(1);
-    }
+    fds_cmd_run_detached(&restart_cmd);
+    // if (resu.exit_code != 0) {
+    //     fds_cmd_free(&restart_cmd);
+    //     exit(1);
+    // }
+    // fds_cmd_result_free(&resu);
     fds_cmd_free(&restart_cmd);
 
     // Успішно запустили нову версію — завершуємо старий процес
@@ -86,8 +154,9 @@ void fds_go_rebuild_urself(int argc, char **argv, const char *source_path) {
 }
 
 
-int main(void)
+int main(int argc, char **argv)
 {
-    fwrite("Hello World\00", 1, 13, stdout);
+    fds_go_rebuild_urself(argc, argv, "src/main.c");
+    fds_log(FINFO, "Hello temaune!! hahaha\n");
     return 0;
 }

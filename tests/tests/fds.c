@@ -1,4 +1,4 @@
-#define FDS_IMPLEMENTATION
+#define FDS_IMPL
 #include "fds.h"
 
 

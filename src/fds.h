@@ -227,15 +227,17 @@ struct fds_allocator {
 #endif
 };
 
-typedef struct block_header {
+typedef struct  block_header {
+    uint32_t magic;
+    uint32_t is_tmp : 1;
+    uint32_t is_permanent : 1;
+    fds_allocator *owner;
     size_t size;
     struct block_header *next;
     struct block_header *prev;
-    int is_tmp;
 #ifdef DEBUG_MEM
     const char *file;
     int line;
-    int is_permanent;
 #endif
 } block_header;
 
@@ -701,7 +703,10 @@ void* fds_alloc_permanent_impl_tracked(fds_allocator *a, size_t size, const char
 #endif
 
 
+
+
 #define FDS_ALIGNMENT 16
+#define FDS_MAGIC 0x46445332U
 #define FDS_ALIGN_UP(size, align) (((size) + (align) - 1) & ~((align) - 1))
 #define HEADER_SIZE FDS_ALIGN_UP(sizeof(block_header), FDS_ALIGNMENT)
 
@@ -5947,31 +5952,58 @@ void fds_dir_iter_close(FdsDirIter *iter)
 
 
 
-static block_header *header_from_ptr(void *ptr) {
-    return (block_header*)((char*)ptr - HEADER_SIZE);
+static inline block_header *header_from_ptr(void *ptr) {
+    if (!ptr) return NULL;
+    block_header *h = (block_header*)((char*)ptr - HEADER_SIZE);
+    if (h->magic != FDS_MAGIC) {
+        fprintf(stderr, "[FDS ERROR] Invalid or corrupted block header at %p!\n", ptr);
+        return NULL;
+    }
+    return h;
 }
+
 
 static void *ptr_from_header(block_header *h) {
     return (void*)((char*)h + HEADER_SIZE);
 }
 
-static block_header *raw_alloc_block(size_t size) {
+static block_header *raw_alloc_block(fds_allocator *owner, size_t size) {
+    if (size > SIZE_MAX - HEADER_SIZE) return NULL;
+
     block_header *h = (block_header*)malloc(HEADER_SIZE + size);
     if (!h) return NULL;
+
+    h->magic = FDS_MAGIC;
+    h->owner = owner;
     h->size = size;
     h->next = NULL;
     h->prev = NULL;
     h->is_tmp = 0;
+    h->is_permanent = 0;
 #ifdef DEBUG_MEM
     h->file = NULL;
     h->line = 0;
-    h->is_permanent = 0;
 #endif
     return h;
 }
 
 static void raw_free_block(block_header *h) {
+    if (!h) return;
+    h->magic = 0;
+    h->owner = NULL;
     free(h);
+}
+static void list_remove(block_header **head, block_header *target) {
+    if (target->prev) {
+        target->prev->next = target->next;
+    } else if (*head == target) {
+        *head = target->next;
+    }
+    if (target->next) {
+        target->next->prev = target->prev;
+    }
+    target->prev = NULL;
+    target->next = NULL;
 }
 
 static void list_push(block_header **head, block_header *h) {
@@ -5983,32 +6015,20 @@ static void list_push(block_header **head, block_header *h) {
     *head = h;
 }
 
-static void list_remove(block_header **head, block_header *target) {
-    if (target->prev) {
-        target->prev->next = target->next;
-    } else {
-        *head = target->next;
-    }
-    if (target->next) {
-        target->next->prev = target->prev;
-    }
-    target->prev = NULL;
-    target->next = NULL;
-}
 
 void fds_allocator_clear_tmp(fds_allocator *a) {
     if (!a) a = fds_allocator_current();
     if (!a || !a->tmp_active) return;
-    
+
     block_header *active = (block_header*)a->tmp_active;
     block_header *last = active;
     while (last->next) last = last->next;
-    
+
     last->next = (block_header*)a->tmp_free;
     if (a->tmp_free) {
         ((block_header*)a->tmp_free)->prev = last;
     }
-    
+
     a->tmp_free = active;
     active->prev = NULL;
     a->tmp_active = NULL;
@@ -6024,30 +6044,30 @@ static void update_peak(fds_allocator *a) {
 
 static void *alloc_internal(fds_allocator *a, size_t size, const char *file, int line, int is_permanent) {
     if (!a) a = fds_allocator_current();
+    if (!a) return NULL;
 
-    block_header *h = raw_alloc_block(size);
+    block_header *h = raw_alloc_block(a, size);
     if (!h) return NULL;
-    
+
     h->is_tmp = 0;
+    h->is_permanent = is_permanent ? 1 : 0;
     list_push((block_header**)&a->all_blocks, h);
     a->live_blocks_count++;
 
 #ifdef DEBUG_MEM
     h->file = file;
     h->line = line;
-    h->is_permanent = is_permanent;
     if (is_permanent) a->stats_permanent_count++;
     a->stats_alloc_count++;
     a->stats_current_allocated += size;
     a->stats_total_allocated += size;
     update_peak(a);
 #else
-    (void)file; (void)line; (void)is_permanent;
+    (void)file; (void)line;
 #endif
 
     return ptr_from_header(h);
 }
-
 void *fds_alloc_impl(fds_allocator *a, size_t size) {
     return alloc_internal(a, size, NULL, 0, 0);
 }
@@ -6061,53 +6081,69 @@ void *fds_calloc_impl(fds_allocator *a, size_t num, size_t size) {
 }
 
 void *fds_realloc_impl(fds_allocator *a, void *ptr, size_t new_size) {
-    if (!a) a = fds_allocator_current();
     if (ptr == NULL) return alloc_internal(a, new_size, NULL, 0, 0);
     if (new_size == 0) {
         fds_free_impl(a, ptr);
         return NULL;
     }
-    
+
     block_header *h = header_from_ptr(ptr);
+    if (!h) return NULL;
+
+    // Використовуємо ДІЙСНОГО власника, який створював блок
+    fds_allocator *owner = h->owner ? h->owner : (a ? a : fds_allocator_current());
+    if (!owner) return NULL;
+
     if (h->is_tmp) {
-        list_remove((block_header**)&a->tmp_active, h);
+        list_remove((block_header**)&owner->tmp_active, h);
     } else {
-        list_remove((block_header**)&a->all_blocks, h);
+        list_remove((block_header**)&owner->all_blocks, h);
     }
-    
+
     block_header *new_h = (block_header*)realloc(h, HEADER_SIZE + new_size);
     if (!new_h) {
         if (h->is_tmp) {
-            list_push((block_header**)&a->tmp_active, h);
+            list_push((block_header**)&owner->tmp_active, h);
         } else {
-            list_push((block_header**)&a->all_blocks, h);
+            list_push((block_header**)&owner->all_blocks, h);
         }
         return NULL;
     }
-    
+
     new_h->size = new_size;
+    new_h->owner = owner;
+
     if (new_h->is_tmp) {
-        list_push((block_header**)&a->tmp_active, new_h);
+        list_push((block_header**)&owner->tmp_active, new_h);
     } else {
-        list_push((block_header**)&a->all_blocks, new_h);
+        list_push((block_header**)&owner->all_blocks, new_h);
     }
     return ptr_from_header(new_h);
 }
 
 void fds_free_impl(fds_allocator *a, void *ptr) {
-    if (!a) a = fds_allocator_current();
     if (!ptr) return;
 
     block_header *h = header_from_ptr(ptr);
+    if (!h) return;
+
+    // Автоматичний захист: шукаємо власника через заголовок
+    fds_allocator *owner = h->owner ? h->owner : (a ? a : fds_allocator_current());
+    if (!owner) return;
+
     if (h->is_tmp) {
-        list_remove((block_header**)&a->tmp_active, h);
+        list_remove((block_header**)&owner->tmp_active, h);
     } else {
-        list_remove((block_header**)&a->all_blocks, h);
-        a->live_blocks_count--;
+        list_remove((block_header**)&owner->all_blocks, h);
+        if (owner->live_blocks_count > 0) owner->live_blocks_count--;
 #ifdef DEBUG_MEM
-        a->stats_free_count++;
-        a->stats_current_allocated -= h->size;
-        a->stats_total_freed += h->size;
+        owner->stats_free_count++;
+        if (owner->stats_current_allocated >= h->size) {
+            owner->stats_current_allocated -= h->size;
+        } else {
+            owner->stats_current_allocated = 0;
+        }
+        owner->stats_total_freed += h->size;
 #endif
     }
     raw_free_block(h);
@@ -6115,9 +6151,11 @@ void fds_free_impl(fds_allocator *a, void *ptr) {
 
 void *fds_alloc_tmp_impl(fds_allocator *a, size_t size) {
     if (!a) a = fds_allocator_current();
+    if (!a) return NULL;
+
     block_header *h = NULL;
     block_header **indirect = (block_header**)&a->tmp_free;
-    
+
     while (*indirect) {
         if ((*indirect)->size >= size) {
             h = *indirect;
@@ -6127,27 +6165,27 @@ void *fds_alloc_tmp_impl(fds_allocator *a, size_t size) {
         }
         indirect = &(*indirect)->next;
     }
-    
+
     if (!h) {
-        h = raw_alloc_block(size);
+        h = raw_alloc_block(a, size);
         if (!h) return NULL;
     } else {
         h->size = size;
+        h->owner = a;
     }
-    
+
     h->is_tmp = 1;
     list_push((block_header**)&a->tmp_active, h);
     return ptr_from_header(h);
 }
-
 void *fds_alloc_permanent_impl(fds_allocator *a, size_t size) {
     return alloc_internal(a, size, NULL, 0, 1);
 }
-
 #ifdef DEBUG_MEM
 void *fds_alloc_impl_tracked(fds_allocator *a, size_t size, const char *file, int line) {
     return alloc_internal(a, size, file, line, 0);
 }
+
 
 void *fds_calloc_impl_tracked(fds_allocator *a, size_t num, size_t size, const char *file, int line) {
     if (!a) a = fds_allocator_current();
@@ -6158,48 +6196,57 @@ void *fds_calloc_impl_tracked(fds_allocator *a, size_t num, size_t size, const c
 }
 
 void *fds_realloc_impl_tracked(fds_allocator *a, void *ptr, size_t new_size, const char *file, int line) {
-    if (!a) a = fds_allocator_current();
     if (ptr == NULL) return alloc_internal(a, new_size, file, line, 0);
     if (new_size == 0) {
         fds_free_impl(a, ptr);
         return NULL;
     }
-    
+
     block_header *h = header_from_ptr(ptr);
-    if (h->is_tmp) {
-        list_remove((block_header**)&a->tmp_active, h);
-    } else {
-        list_remove((block_header**)&a->all_blocks, h);
-    }
-    
+    if (!h) return NULL;
+
+    fds_allocator *owner = h->owner ? h->owner : (a ? a : fds_allocator_current());
+    if (!owner) return NULL;
+
     size_t old_size = h->size;
+    if (h->is_tmp) {
+        list_remove((block_header**)&owner->tmp_active, h);
+    } else {
+        list_remove((block_header**)&owner->all_blocks, h);
+    }
+
     block_header *new_h = (block_header*)realloc(h, HEADER_SIZE + new_size);
     if (!new_h) {
         if (h->is_tmp) {
-            list_push((block_header**)&a->tmp_active, h);
+            list_push((block_header**)&owner->tmp_active, h);
         } else {
-            list_push((block_header**)&a->all_blocks, h);
+            list_push((block_header**)&owner->all_blocks, h);
         }
         return NULL;
     }
-    
+
     new_h->size = new_size;
+    new_h->owner = owner;
     new_h->file = file;
     new_h->line = line;
-    
+
     if (new_h->is_tmp) {
-        list_push((block_header**)&a->tmp_active, new_h);
+        list_push((block_header**)&owner->tmp_active, new_h);
     } else {
-        list_push((block_header**)&a->all_blocks, new_h);
-        a->stats_realloc_count++;
+        list_push((block_header**)&owner->all_blocks, new_h);
+        owner->stats_realloc_count++;
         if (new_size > old_size) {
-            a->stats_current_allocated += (new_size - old_size);
-            a->stats_total_allocated += (new_size - old_size);
+            owner->stats_current_allocated += (new_size - old_size);
+            owner->stats_total_allocated += (new_size - old_size);
         } else {
-            a->stats_current_allocated -= (old_size - new_size);
-            a->stats_total_freed += (old_size - new_size);
+            if (owner->stats_current_allocated >= (old_size - new_size)) {
+                owner->stats_current_allocated -= (old_size - new_size);
+            } else {
+                owner->stats_current_allocated = 0;
+            }
+            owner->stats_total_freed += (old_size - new_size);
         }
-        update_peak(a);
+        update_peak(owner);
     }
 
     return ptr_from_header(new_h);
@@ -6207,9 +6254,11 @@ void *fds_realloc_impl_tracked(fds_allocator *a, void *ptr, size_t new_size, con
 
 void *fds_alloc_tmp_impl_tracked(fds_allocator *a, size_t size, const char *file, int line) {
     if (!a) a = fds_allocator_current();
+    if (!a) return NULL;
+
     block_header *h = NULL;
     block_header **indirect = (block_header**)&a->tmp_free;
-    
+
     while (*indirect) {
         if ((*indirect)->size >= size) {
             h = *indirect;
@@ -6222,17 +6271,18 @@ void *fds_alloc_tmp_impl_tracked(fds_allocator *a, size_t size, const char *file
 
     int new_block_created = 0;
     if (!h) {
-        h = raw_alloc_block(size);
+        h = raw_alloc_block(a, size);
         if (!h) return NULL;
         new_block_created = 1;
     } else {
         h->size = size;
+        h->owner = a;
     }
-    
+
     h->is_tmp = 1;
     h->file = file;
     h->line = line;
-    h->is_permanent = 0; 
+    h->is_permanent = 0;
     list_push((block_header**)&a->tmp_active, h);
 
     a->stats_tmp_alloc_calls++;
@@ -6245,6 +6295,8 @@ void *fds_alloc_tmp_impl_tracked(fds_allocator *a, size_t size, const char *file
 
     return ptr_from_header(h);
 }
+
+
 
 void *fds_alloc_permanent_impl_tracked(fds_allocator *a, size_t size, const char *file, int line) {
     return alloc_internal(a, size, file, line, 1);
