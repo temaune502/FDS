@@ -26,7 +26,7 @@ int main2(void) {
         fprintf(stderr, "Не вдалося створити тестовий файл!\n");
         return 1;
     }
-    time_t times =  get_file_mtime(test_filename);
+    time_t times =  fds_get_file_mtime(test_filename);
     printf("%lld\n", times);
     // 2. Парсимо створений файл
     printf("--- Читання та парсинг файлу %s ---\n", test_filename);

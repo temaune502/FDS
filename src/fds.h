@@ -1142,7 +1142,7 @@ int fds_file_write_sb(const char *filepath, const SB *sb);
 int fds_path_extension(SV filepath, SV *out_ext);
 int fds_rename(const char *oldpath, const char *newpath);
 
-time_t get_file_mtime(const char *path);
+time_t fds_get_file_mtime(const char *path);
 
 int fds_dir_create(const char *dirpath);
 
@@ -5640,7 +5640,7 @@ int fds_file_append_sb(const char *filepath, const SB *sb)
 #endif
 
 // Returns the time the file was last modified. Returns (time_t)-1 on error.
-time_t get_file_mtime(const char *path)
+time_t fds_get_file_mtime(const char *path)
 {
     if (path == NULL)
     {
@@ -6686,11 +6686,11 @@ int fds_needs_rebuild(const char *output_path, const char *input_path)
     if (!output_path || !input_path)
         return -1;
 
-    time_t in_mtime = get_file_mtime(input_path);
+    time_t in_mtime = fds_get_file_mtime(input_path);
     if (in_mtime == (time_t)-1)
         return -1;
 
-    time_t out_mtime = get_file_mtime(output_path);
+    time_t out_mtime = fds_get_file_mtime(output_path);
     if (out_mtime == (time_t)-1)
         return 1;
 
@@ -6702,14 +6702,14 @@ int fds_needs_rebuild_many(const char *output_path, const char *const *inputs, s
     if (!output_path || !inputs)
         return -1;
 
-    time_t out_mtime = get_file_mtime(output_path);
+    time_t out_mtime = fds_get_file_mtime(output_path);
     int out_missing = (out_mtime == (time_t)-1);
 
     for (size_t i = 0; i < input_count; ++i)
     {
         if (!inputs[i])
             return -1;
-        time_t in_mtime = get_file_mtime(inputs[i]);
+        time_t in_mtime = fds_get_file_mtime(inputs[i]);
         if (in_mtime == (time_t)-1)
             return -1;
         if (out_missing || in_mtime > out_mtime)
@@ -6796,43 +6796,13 @@ void fds_go_rebuild_urself(int argc, char **argv, const char *source_path)
     if (!argv || !argv[0] || !source_path)
         return;
 
-    char binary_path[1024];
+    char binary_path[KB];
     fds_resolve_binary_path(argv[0], binary_path, sizeof(binary_path));
 
-    const char *inputs[2];
-    inputs[0] = source_path;
-    size_t input_count = 1;
-
-    /* Also rebuild when the library header next to the source (or fds.h) is newer. */
-    {
-        static char header_guess[1024];
-        const char *slash = strrchr(source_path, '/');
-        const char *bslash = strrchr(source_path, '\\');
-        const char *sep = slash;
-        if (bslash && (!sep || bslash > sep))
-            sep = bslash;
-        if (sep)
-        {
-            size_t dir_len = (size_t)(sep - source_path + 1);
-            if (dir_len + 6 < sizeof(header_guess))
-            {
-                memcpy(header_guess, source_path, dir_len);
-                memcpy(header_guess + dir_len, "fds.h", 6);
-                if (get_file_mtime(header_guess) != (time_t)-1)
-                {
-                    inputs[1] = header_guess;
-                    input_count = 2;
-                }
-            }
-        }
-        else if (get_file_mtime("fds.h") != (time_t)-1)
-        {
-            inputs[1] = "fds.h";
-            input_count = 2;
-        }
-    }
-
-    int rebuild = fds_needs_rebuild_many(binary_path, inputs, input_count);
+    /* Тепер перевіряємо лише основний вихідний файл */
+    const char *inputs[1] = { source_path };
+    int rebuild = fds_needs_rebuild_many(binary_path, inputs, 1);
+    
     if (rebuild < 0)
     {
         fds_log(FERROR, "cannot stat source %s", source_path);
@@ -6841,8 +6811,9 @@ void fds_go_rebuild_urself(int argc, char **argv, const char *source_path)
     if (!rebuild)
         return;
 
-    char temp_binary_path[1024];
-    char old_binary_path[1024];
+    /* Використовуємо KB + 8 для безпечного запису суфіксів */
+    char temp_binary_path[KB + 8];
+    char old_binary_path[KB + 8];
     snprintf(temp_binary_path, sizeof(temp_binary_path), "%s.tmp", binary_path);
     snprintf(old_binary_path, sizeof(old_binary_path), "%s.old", binary_path);
 
@@ -6903,7 +6874,6 @@ void fds_go_rebuild_urself(int argc, char **argv, const char *source_path)
 
     fds_restart_self(argc, argv, binary_path);
 }
-
 // FDS files and folders fuctions End ================================================================================================================
 #endif // FDS_IMPL
 

@@ -1,76 +1,9 @@
 #define FDS_IMPL
 #include "fds.h"
 
-#define fds_cmd_run(cmd)    \
-    fds_cmd_run_ext((cmd)); \
-    fds_log(FINFO, "Cmd: %s", (cmd));
-
 #define Fds_Cmd StringArray
-#define fds_cmd_append(a,b)  sa_push((a), (b))
-#define fds_cmd_free(a)      sa_free((a))
 
-bool fds_cmd_run_detached(Fds_Cmd *cmd) {
-    // Збираємо аргументи команди в один загальний рядок
-    char *joined = sa_join(cmd, " ");
-    wchar_t *wcmd = fds_internal_utf8_to_utf16(joined); // або ваш еквівалент конвертації
-    
-    STARTUPINFOW si = {0};
-    si.cb = sizeof(si);
-    PROCESS_INFORMATION pi = {0};
-
-    // Запускаємо процес асинхронно
-    BOOL success = CreateProcessW(
-        NULL,             // Локальний шлях до модуля (можна NULL, якщо передано у командному рядку)
-        wcmd,             // Командний рядок
-        NULL,             // Process security attributes
-        NULL,             // Thread security attributes
-        FALSE,            // Успадкування дескрипторів (не потрібно)
-        0,                // Прапорці створення (наприклад, CREATE_NO_WINDOW якщо треба без консолі)
-        NULL,             // Новий блок оточення (використовувати поточний)
-        NULL,             // Робоча директорія (успадкувати поточну)
-        &si,              // STARTUPINFO
-        &pi               // PROCESS_INFORMATION
-    );
-
-    // Звільняємо тимчасовий рядок, якщо він виділявся динамічно
-    // free(joined); 
-    // free(wcmd);
-
-    if (!success) {
-        return false;
-    }
-
-    // Головний секрет «неочікування»: ми закриваємо хендли відразу. 
-    // ОС сама знищить їх, коли задіяний процес завершиться, а наш 
-    // поточний процес не буде блокуватись і витрачати пам'ять на утримання хендлів.
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-
-    return true;
-}
-
-
-int fds_needs_rebuild(const char *binary_path, const char *source_path) {
-    struct stat binary_stat = {0};
-    
-    // Якщо бінарного файлу ще немає на диску — його треба зібрати
-    if (stat(binary_path, &binary_stat) < 0) {
-        return 1; 
-    }
-
-    struct stat source_stat = {0};
-    // Якщо вихідний файл не знайдено — це помилка
-    if (stat(source_path, &source_stat) < 0) {
-        fprintf(stderr, "ERROR: Failed to stat source file %s\n", source_path);
-        return -1;
-    }
-
-    // Порівнюємо час модифікації (mtime)
-    // Якщо джерело новіше за бінарник — потрібен ребілд
-    return source_stat.st_mtime > binary_stat.st_mtime;
-}
-
-void fds_go_rebuild_urself(int argc, char **argv, const char *source_path) {
+void fds_go_rebuild_urselfeeee(int argc, char **argv, const char *source_path) {
     const char *binary_path = argv[0];
 
     // якщо у argv[0] немає .exe, а на диск воно збереглося з .exe
@@ -142,7 +75,7 @@ void fds_go_rebuild_urself(int argc, char **argv, const char *source_path) {
     for (int i = 1; i < argc; ++i) {
         fds_cmd_append(&restart_cmd, argv[i]);
     }
-    fds_cmd_run_detached(&restart_cmd);
+    fds_cmd_run_detached(fds_cmd_render(&restart_cmd));
     // if (resu.exit_code != 0) {
     //     fds_cmd_free(&restart_cmd);
     //     exit(1);
@@ -157,20 +90,9 @@ void fds_go_rebuild_urself(int argc, char **argv, const char *source_path) {
 
 int main(int argc, char **argv)
 {
-    fds_go_rebuild_urself(argc, argv, "src/main.c");
-
-    FdsBytesView input = {.data = "Hello temaune", .size = 13};
-    FdsBytesBuilder output = {0};
-    FdsBytesBuilder output1 = {0};
-
-    fds_compress_lz(input, &output);
-
-    fds_log(FINFO, "Compressed data = %.*s",output.size, (char*)output.data);
-    fds_log(FINFO, "Original data = Hello temaune");
-    
-    fds_decompress_lz((FdsBytesView){.data = output.data, .size = output.size}, &output1);
-    fds_log(FINFO, "Decompressed data = %.*s",output1.size, (char*)output1.data);
-    
+    // fds_go_rebuild_urself(argc, argv, "src/main.c");
+    FDS_REBUILD_YOURSELF(argc, argv);
     fds_log(FINFO, "Hello temaune!! hahaha\n");
+    
     return 0;
 }
