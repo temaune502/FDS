@@ -1,6 +1,19 @@
 #ifndef FDS_H
 #define FDS_H
 
+/* Include this header first in a translation unit so POSIX feature macros apply. */
+#if !defined(_WIN32)
+#  ifndef _DEFAULT_SOURCE
+#    define _DEFAULT_SOURCE
+#  endif
+#  ifndef _POSIX_C_SOURCE
+#    define _POSIX_C_SOURCE 200809L
+#  endif
+#  ifndef _FILE_OFFSET_BITS
+#    define _FILE_OFFSET_BITS 64
+#  endif
+#endif
+
 // #ifndef DANGER_THINGS_OFF
 
 // // Very DANGER but useful
@@ -8,8 +21,10 @@
 
 // #endif
 
+#if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
 
 #pragma once
 
@@ -26,6 +41,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <time.h>
 
 #define KB ((size_t)1024)
 #define MB (KB * 1024)
@@ -43,6 +59,7 @@ extern "C" {
 #ifndef SB_INITIAL_CAPACITY
 #define SB_INITIAL_CAPACITY 64
 #endif
+
 
 
 #ifndef ALIGNMENT
@@ -175,6 +192,8 @@ extern "C" {
 #define FDS_ISATTY isatty
 #define FDS_FILENO fileno
 #endif
+
+
 
 //Allocator functions from reading file
 typedef void *(*allocator)(size_t);
@@ -702,8 +721,33 @@ void* fds_alloc_permanent_impl_tracked(fds_allocator *a, size_t size, const char
     #define fds_alloc_permanent_a(a, size) fds_alloc_permanent_impl(a, size)
 #endif
 
+#define FDS_GET_NEW_MACRO(_1, _2, NAME, ...) NAME
+#define New(...) FDS_GET_NEW_MACRO(__VA_ARGS__, FDS_NEW_ARRAY, FDS_NEW_SINGLE)(__VA_ARGS__)
+#define FDS_NEW_SINGLE(Type) ((Type *)fds_calloc(1, sizeof(Type)))
+#define FDS_NEW_ARRAY(Type, count) ((Type *)fds_calloc((count), sizeof(Type)))
 
+#define New_a(...) FDS_GET_NEW_MACRO(__VA_ARGS__, FDS_NEW_ARRAY_A, FDS_NEW_SINGLE_A)(__VA_ARGS__)
+#define FDS_NEW_SINGLE_A(a, Type) ((Type *)fds_calloc_a((a), 1, sizeof(Type)))
+#define FDS_NEW_ARRAY_A(a, Type, count) ((Type *)fds_calloc_a((a), (count), sizeof(Type)))
 
+static inline void _fds_auto_cleanup(void *p)
+{
+    void **ptr_to_handle = (void **)p;
+    if (ptr_to_handle && *ptr_to_handle)
+    {
+        fds_free(*ptr_to_handle);
+        *ptr_to_handle = NULL;
+    }
+}
+
+#if defined(__GNUC__) || defined(__clang__)
+#define fds_auto __attribute__((cleanup(_fds_auto_cleanup)))
+#define fds_steal(ptr) ({ \
+    __typeof__(ptr) _tmp = (ptr); \
+    (ptr) = NULL; \
+    _tmp; \
+})
+#endif
 
 #define FDS_ALIGNMENT 16
 #define FDS_MAGIC 0x46445332U
@@ -776,8 +820,8 @@ bool fds_bv_read_f64_be(FdsBytesView *view, double *out_val);
 bool fds_bv_read_string_u16(FdsBytesView *view, FdsBytesView *out_str_view);
 
 // Compression
-FdsCompressStatus fds_ext_compress_lz(FdsBytesView input, FdsBytesBuilder *out_builder);
-bool fds_ext_decompress_lz(FdsBytesView input, FdsBytesBuilder *out_builder);
+FdsCompressStatus fds_compress_lz(FdsBytesView input, FdsBytesBuilder *out_builder);
+bool fds_decompress_lz(FdsBytesView input, FdsBytesBuilder *out_builder);
 
 // honestly, I don't remember why I wrote it, but for something important, so it should be left
 static inline int safe_add(size_t a, size_t b, size_t *res);
@@ -790,8 +834,10 @@ void fds_log_impl(fds_log_level level, const char *file, int line, const char *f
 // Console utils fuctions Start ================================================================================================================
 
 void fds_cli_init(int *argc, char ***argv);
+#ifdef _WIN32
 char *fds_internal_utf16_to_utf8(const wchar_t *utf16_str);
 static wchar_t *fds_internal_utf8_to_utf16(const char *utf8_str);
+#endif
 size_t utf8_strlen(const char *s);
 
 // Console utils fuctions End ================================================================================================================
@@ -1136,17 +1182,53 @@ int fds_cmd_run_Simp(const char *cmd_utf8, char **out_output);
 fds_cmd_result fds_cmd_run_ext(const char *cmd_utf8);
 void fds_cmd_result_free(fds_cmd_result *res);
 static void fds_append_pipe_data(char **buffer, size_t *len, size_t *cap, const char *chunk, size_t chunk_size);
+char *fds_cmd_render(const StringArray *cmd);
+fds_cmd_result fds_cmd_run_sa(const StringArray *cmd);
+bool fds_cmd_run_detached(const char *cmd_utf8);
+int fds_needs_rebuild(const char *output_path, const char *input_path);
+int fds_needs_rebuild_many(const char *output_path, const char *const *inputs, size_t input_count);
+int fds_mkdir_if_not_exists(const char *dirpath);
+void fds_go_rebuild_urself(int argc, char **argv, const char *source_path);
+
+static inline const char *fds_shift_args(int *argc, char ***argv)
+{
+    if (!argc || !argv || *argc <= 0 || !*argv)
+        return NULL;
+    const char *result = (*argv)[0];
+    (*argc)--;
+    (*argv)++;
+    return result;
+}
 
 // Procs fuctions End ================================================================================================================
 
 
 
 #ifndef FDS_MALLOC
-#define FDS_CALLOC(a,p) fds_calloc((a), (p));
+#define FDS_CALLOC(a,p) fds_calloc((a), (p))
 #define FDS_MALLOC(sz) fds_alloc(sz)
 #define FDS_REALLOC(ptr, sz) fds_realloc(ptr, sz)
 #define FDS_FREE(ptr) fds_free((ptr))
 #endif
+
+#ifndef FDS_REBUILD_CC
+#ifdef _WIN32
+#define FDS_REBUILD_CC "gcc"
+#else
+#define FDS_REBUILD_CC "cc"
+#endif
+#endif
+
+#ifndef FDS_REBUILD_CFLAGS
+#define FDS_REBUILD_CFLAGS "-g"
+#endif
+
+#define FDS_REBUILD_YOURSELF(argc, argv) fds_go_rebuild_urself((argc), (argv), __FILE__)
+
+#define FdsCmd StringArray
+#define fds_cmd_append(cmd, str) sa_push((cmd), (str))
+#define fds_cmd_append_many(cmd, ...) sa_pushm((cmd), __VA_ARGS__)
+#define fds_cmd_free(cmd) sa_free((cmd))
 
 
 
@@ -1180,6 +1262,11 @@ static inline void _temp_arena_thread_cleanup(int *dummy);
 #include <shellapi.h>
 #include <io.h>
 #include <time.h>
+#else
+#include <errno.h>
+#include <poll.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #endif
 
 #ifdef _WIN32
@@ -1274,6 +1361,7 @@ void fds_log_impl(fds_log_level level, const char *file, int line, const char *f
 
 // Console utils functions Start ================================================================================================================
 
+#ifdef _WIN32
 static wchar_t *fds_internal_utf8_to_utf16(const char *utf8_str)
 {
     if (!utf8_str)
@@ -1309,6 +1397,7 @@ char *fds_internal_utf16_to_utf8(const wchar_t *utf16_str)
     WideCharToMultiByte(CP_UTF8, 0, utf16_str, -1, str, len, NULL, NULL);
     return str;
 }
+#endif
 
 // #pragma GCC diagnostic pop
 // Ініціалізація консолі та нормалізація argv до UTF-8
@@ -1541,7 +1630,7 @@ fds_cmd_result fds_cmd_run_ext(const char *cmd_utf8)
 
         // Використовуємо sh -c для того, щоб команда парсилася так само, як у Windows
         execl("/bin/sh", "sh", "-c", cmd_utf8, (char *)NULL);
-        exit(127); // Якщо execl провалився
+        _exit(127); // Якщо execl провалився
     }
 
     // Parent
@@ -1670,7 +1759,9 @@ int fds_cmd_run_Simp(const char *cmd_utf8, char **out_output)
         {
         }
     }
+#ifdef _WIN32
     FDS_FREE(wcmd);
+#endif
     // Закриваємо pipe і повертаємо код завершення команди
 #ifdef _WIN32
     return _pclose(pipe);
@@ -3047,7 +3138,7 @@ FdsFile fds_file_from_mapped(FdsMappedFile *mapped)
         return file;
 
     // Створюємо FILE* потік поверх пам'яті mmap
-    FILE *f = fmemopen(mapped->data, mapped->size, "rwb");
+    FILE *f = fmemopen(mapped->data, mapped->size, "r+b");
     if (f)
     {
         file.handle = (uintptr_t)f;
@@ -4597,7 +4688,7 @@ void flagset_usage(FlagSet *fs)
 // Flag parser fuctions End ================================================================================================================
 
 // Compression fuctions Start ================================================================================================================
-FdsCompressStatus fds_ext_compress_lz(FdsBytesView input, FdsBytesBuilder *out_builder)
+FdsCompressStatus fds_compress_lz(FdsBytesView input, FdsBytesBuilder *out_builder)
 {
     if (!out_builder)
         return FDS_CMP_ERROR;
@@ -4751,7 +4842,7 @@ FdsCompressStatus fds_ext_compress_lz(FdsBytesView input, FdsBytesBuilder *out_b
     return FDS_CMP_COMPRESSED;
 }
 
-bool fds_ext_decompress_lz(FdsBytesView input, FdsBytesBuilder *out_builder)
+bool fds_decompress_lz(FdsBytesView input, FdsBytesBuilder *out_builder)
 {
     if (!out_builder)
         return false;
@@ -5877,6 +5968,22 @@ int fds_dir_delete(const char *dirpath)
     return 1;
 }
 
+int fds_dir_create(const char *dirpath)
+{
+    if (!dirpath)
+        return 1;
+    if (mkdir(dirpath, 0755) == 0)
+        return 0;
+    return 1;
+}
+
+int fds_rename(const char *oldpath, const char *newpath)
+{
+    if (!oldpath || !newpath)
+        return 1;
+    return rename(oldpath, newpath) == 0 ? 0 : 1;
+}
+
 int fds_file_exists(const char *filepath)
 {
     if (!filepath)
@@ -5906,8 +6013,9 @@ int fds_dir_iter_open(const char *dirpath, FdsDirIter *iter)
     if (!d)
         return 1;
 
+    memset(iter, 0, sizeof(*iter));
     iter->internal_handle = d;
-    iter->internal_find_data = NULL; /* No additional structure is required on Linux */
+    iter->internal_find_data = str_dup(dirpath);
     return 0;
 }
 
@@ -5930,8 +6038,16 @@ int fds_dir_iter_next(FdsDirIter *iter, SV *out_name, int *out_is_dir)
 
         if (out_is_dir)
         {
-            /* DT_DIR is supported by most modern file systems (ext4, btrfs) */
-            *out_is_dir = (dir->d_type == DT_DIR) ? 1 : 0;
+            int is_dir = (dir->d_type == DT_DIR);
+            if (dir->d_type == DT_UNKNOWN || dir->d_type == DT_LNK)
+            {
+                const char *base = (const char *)iter->internal_find_data;
+                char full[2048];
+                snprintf(full, sizeof(full), "%s/%s", base ? base : ".", dir->d_name);
+                struct stat st;
+                is_dir = (stat(full, &st) == 0 && S_ISDIR(st.st_mode)) ? 1 : 0;
+            }
+            *out_is_dir = is_dir;
         }
         return 0;
     }
@@ -5946,7 +6062,12 @@ void fds_dir_iter_close(FdsDirIter *iter)
     {
         closedir((DIR *)iter->internal_handle);
     }
+    if (iter->internal_find_data)
+    {
+        FDS_FREE(iter->internal_find_data);
+    }
     iter->internal_handle = NULL;
+    iter->internal_find_data = NULL;
 }
 #endif
 
@@ -6428,8 +6549,360 @@ void fds_allocator_print_stats(fds_allocator *a) {
 }
 #endif
 
+static char *fds_shell_quote(const char *arg)
+{
+    if (!arg)
+        arg = "";
 
+#ifdef _WIN32
+    size_t extra = 2;
+    for (const char *p = arg; *p; ++p)
+    {
+        if (*p == '"')
+            extra++;
+    }
+    size_t n = strlen(arg);
+    char *out = (char *)FDS_MALLOC(n + extra + 1);
+    if (!out)
+        return NULL;
+    char *w = out;
+    *w++ = '"';
+    for (const char *p = arg; *p; ++p)
+    {
+        if (*p == '"')
+            *w++ = '"';
+        *w++ = *p;
+    }
+    *w++ = '"';
+    *w = '\0';
+    return out;
+#else
+    size_t extra = 2;
+    for (const char *p = arg; *p; ++p)
+    {
+        if (*p == '\'')
+            extra += 3;
+    }
+    size_t n = strlen(arg);
+    char *out = (char *)FDS_MALLOC(n + extra + 1);
+    if (!out)
+        return NULL;
+    char *w = out;
+    *w++ = '\'';
+    for (const char *p = arg; *p; ++p)
+    {
+        if (*p == '\'')
+        {
+            memcpy(w, "'\\''", 4);
+            w += 4;
+        }
+        else
+        {
+            *w++ = *p;
+        }
+    }
+    *w++ = '\'';
+    *w = '\0';
+    return out;
+#endif
+}
 
+char *fds_cmd_render(const StringArray *cmd)
+{
+    if (!cmd || cmd->size == 0)
+        return str_dup("");
+
+    StringArray quoted = {0};
+    for (size_t i = 0; i < cmd->size; ++i)
+    {
+        char *q = fds_shell_quote(cmd->data[i]);
+        if (!q)
+        {
+            sa_free(&quoted);
+            return NULL;
+        }
+        sa_push(&quoted, q);
+        FDS_FREE(q);
+    }
+
+    char *joined = sa_join(&quoted, " ");
+    sa_free(&quoted);
+    return joined;
+}
+
+fds_cmd_result fds_cmd_run_sa(const StringArray *cmd)
+{
+    char *line = fds_cmd_render(cmd);
+    if (!line)
+    {
+        fds_cmd_result res = {0};
+        res.exit_code = -1;
+        return res;
+    }
+    fds_cmd_result res = fds_cmd_run_ext(line);
+    FDS_FREE(line);
+    return res;
+}
+
+bool fds_cmd_run_detached(const char *cmd_utf8)
+{
+    if (!cmd_utf8)
+        return false;
+
+#ifdef _WIN32
+    wchar_t *wcmd = fds_internal_utf8_to_utf16(cmd_utf8);
+    if (!wcmd)
+        return false;
+
+    STARTUPINFOW si = {0};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi = {0};
+
+    bool success = CreateProcessW(NULL, wcmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi) != 0;
+    FDS_FREE(wcmd);
+
+    if (!success)
+        return false;
+
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    return true;
+#else
+    pid_t pid = fork();
+    if (pid < 0)
+        return false;
+    if (pid == 0)
+    {
+        setsid();
+        execl("/bin/sh", "sh", "-c", cmd_utf8, (char *)NULL);
+        _exit(127);
+    }
+    return true;
+#endif
+}
+
+int fds_needs_rebuild(const char *output_path, const char *input_path)
+{
+    if (!output_path || !input_path)
+        return -1;
+
+    time_t in_mtime = get_file_mtime(input_path);
+    if (in_mtime == (time_t)-1)
+        return -1;
+
+    time_t out_mtime = get_file_mtime(output_path);
+    if (out_mtime == (time_t)-1)
+        return 1;
+
+    return in_mtime > out_mtime ? 1 : 0;
+}
+
+int fds_needs_rebuild_many(const char *output_path, const char *const *inputs, size_t input_count)
+{
+    if (!output_path || !inputs)
+        return -1;
+
+    time_t out_mtime = get_file_mtime(output_path);
+    int out_missing = (out_mtime == (time_t)-1);
+
+    for (size_t i = 0; i < input_count; ++i)
+    {
+        if (!inputs[i])
+            return -1;
+        time_t in_mtime = get_file_mtime(inputs[i]);
+        if (in_mtime == (time_t)-1)
+            return -1;
+        if (out_missing || in_mtime > out_mtime)
+            return 1;
+    }
+    return 0;
+}
+
+int fds_mkdir_if_not_exists(const char *dirpath)
+{
+    if (!dirpath)
+        return 1;
+    if (fds_dir_exists(dirpath) == 0)
+        return 0;
+    return fds_dir_create(dirpath);
+}
+
+static void fds_resolve_binary_path(const char *argv0, char *out, size_t out_sz)
+{
+    snprintf(out, out_sz, "%s", argv0 ? argv0 : "");
+#ifdef _WIN32
+    size_t n = strlen(out);
+    int has_exe = (n >= 4 && _stricmp(out + n - 4, ".exe") == 0);
+    if (!has_exe)
+    {
+        char with_exe[1024];
+        snprintf(with_exe, sizeof(with_exe), "%s.exe", out);
+        if (fds_file_exists(with_exe) == 0 || fds_file_exists(out) != 0)
+            snprintf(out, out_sz, "%s", with_exe);
+    }
+#endif
+}
+
+static void fds_restart_self(int argc, char **argv, const char *binary_path)
+{
+#ifdef _WIN32
+    StringArray restart = {0};
+    sa_push(&restart, binary_path);
+    for (int i = 1; i < argc; ++i)
+        sa_push(&restart, argv[i]);
+
+    char *line = fds_cmd_render(&restart);
+    sa_free(&restart);
+    if (!line)
+        exit(1);
+
+    wchar_t *wcmd = fds_internal_utf8_to_utf16(line);
+    FDS_FREE(line);
+    if (!wcmd)
+        exit(1);
+
+    STARTUPINFOW si = {0};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi = {0};
+    BOOL ok = CreateProcessW(NULL, wcmd, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
+    FDS_FREE(wcmd);
+    if (!ok)
+    {
+        fds_log(FERROR, "failed to restart %s", binary_path);
+        exit(1);
+    }
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD code = 1;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    exit((int)code);
+#else
+    char **new_argv = (char **)FDS_MALLOC((size_t)(argc + 1) * sizeof(char *));
+    if (!new_argv)
+        exit(1);
+    new_argv[0] = (char *)binary_path;
+    for (int i = 1; i < argc; ++i)
+        new_argv[i] = argv[i];
+    new_argv[argc] = NULL;
+    execv(binary_path, new_argv);
+    fds_log(FERROR, "execv(%s) failed", binary_path);
+    exit(1);
+#endif
+}
+
+void fds_go_rebuild_urself(int argc, char **argv, const char *source_path)
+{
+    if (!argv || !argv[0] || !source_path)
+        return;
+
+    char binary_path[1024];
+    fds_resolve_binary_path(argv[0], binary_path, sizeof(binary_path));
+
+    const char *inputs[2];
+    inputs[0] = source_path;
+    size_t input_count = 1;
+
+    /* Also rebuild when the library header next to the source (or fds.h) is newer. */
+    {
+        static char header_guess[1024];
+        const char *slash = strrchr(source_path, '/');
+        const char *bslash = strrchr(source_path, '\\');
+        const char *sep = slash;
+        if (bslash && (!sep || bslash > sep))
+            sep = bslash;
+        if (sep)
+        {
+            size_t dir_len = (size_t)(sep - source_path + 1);
+            if (dir_len + 6 < sizeof(header_guess))
+            {
+                memcpy(header_guess, source_path, dir_len);
+                memcpy(header_guess + dir_len, "fds.h", 6);
+                if (get_file_mtime(header_guess) != (time_t)-1)
+                {
+                    inputs[1] = header_guess;
+                    input_count = 2;
+                }
+            }
+        }
+        else if (get_file_mtime("fds.h") != (time_t)-1)
+        {
+            inputs[1] = "fds.h";
+            input_count = 2;
+        }
+    }
+
+    int rebuild = fds_needs_rebuild_many(binary_path, inputs, input_count);
+    if (rebuild < 0)
+    {
+        fds_log(FERROR, "cannot stat source %s", source_path);
+        exit(1);
+    }
+    if (!rebuild)
+        return;
+
+    char temp_binary_path[1024];
+    char old_binary_path[1024];
+    snprintf(temp_binary_path, sizeof(temp_binary_path), "%s.tmp", binary_path);
+    snprintf(old_binary_path, sizeof(old_binary_path), "%s.old", binary_path);
+
+    const char *cc = getenv("CC");
+    if (!cc || !cc[0])
+        cc = FDS_REBUILD_CC;
+
+    StringArray cmd = {0};
+    sa_push(&cmd, cc);
+
+    StringArray extra_flags = {0};
+    sa_split(&extra_flags, FDS_REBUILD_CFLAGS, " \t", true);
+    sa_append_array(&cmd, &extra_flags);
+    sa_free(&extra_flags);
+
+    sa_push(&cmd, source_path);
+    sa_push(&cmd, "-o");
+    sa_push(&cmd, temp_binary_path);
+
+    fds_log(FINFO, "rebuilding %s", binary_path);
+    fds_cmd_result res = fds_cmd_run_sa(&cmd);
+    sa_free(&cmd);
+
+    if (!res.success || res.exit_code != 0)
+    {
+        fds_file_delete(temp_binary_path);
+        if (res.stderr_len)
+            fds_log(FERROR, "%s", res.stderr_data);
+        else if (res.stdout_len)
+            fds_log(FERROR, "%s", res.stdout_data);
+        else
+            fds_log(FERROR, "rebuild failed for %s", source_path);
+        fds_cmd_result_free(&res);
+        exit(1);
+    }
+    fds_cmd_result_free(&res);
+
+    fds_file_delete(old_binary_path);
+
+    if (fds_rename(binary_path, old_binary_path) != 0)
+    {
+        fds_log(FERROR, "failed to rename %s -> %s", binary_path, old_binary_path);
+        fds_file_delete(temp_binary_path);
+        exit(1);
+    }
+
+    if (fds_rename(temp_binary_path, binary_path) != 0)
+    {
+        fds_log(FERROR, "failed to rename temp binary -> %s", binary_path);
+        fds_rename(old_binary_path, binary_path);
+        fds_file_delete(temp_binary_path);
+        exit(1);
+    }
+
+#ifndef _WIN32
+    chmod(binary_path, 0755);
+#endif
+
+    fds_restart_self(argc, argv, binary_path);
+}
 
 // FDS files and folders fuctions End ================================================================================================================
 #endif // FDS_IMPL
@@ -6438,6 +6911,8 @@ void fds_allocator_print_stats(fds_allocator *a) {
 }
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic pop
+#endif
 
 #endif // FDS_H

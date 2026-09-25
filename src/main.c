@@ -98,7 +98,8 @@ void fds_go_rebuild_urself(int argc, char **argv, const char *source_path) {
     // 2. Компілюємо новий бінарник у ТИМЧАСОВИЙ файл (.tmp)
     // Якщо тут станеться синтаксична помилка, оригінальний binary_path лишиться недоторканим!
     Fds_Cmd cmd = {0};
-    fds_cmd_append(&cmd, "cc"); // Або ваш шлях до компілятора (cl.exe / gcc / clang)
+    fds_cmd_append(&cmd, "gcc"); // Або ваш шлях до компілятора (cl.exe / gcc / clang)
+    fds_cmd_append(&cmd, "-ggdb"); // Або ваш шлях до компілятора (cl.exe / gcc / clang)
     fds_cmd_append(&cmd, source_path);
     fds_cmd_append(&cmd, "-o");
     fds_cmd_append(&cmd, temp_binary_path);
@@ -157,6 +158,19 @@ void fds_go_rebuild_urself(int argc, char **argv, const char *source_path) {
 int main(int argc, char **argv)
 {
     fds_go_rebuild_urself(argc, argv, "src/main.c");
+
+    FdsBytesView input = {.data = "Hello temaune", .size = 13};
+    FdsBytesBuilder output = {0};
+    FdsBytesBuilder output1 = {0};
+
+    fds_compress_lz(input, &output);
+
+    fds_log(FINFO, "Compressed data = %.*s",output.size, (char*)output.data);
+    fds_log(FINFO, "Original data = Hello temaune");
+    
+    fds_decompress_lz((FdsBytesView){.data = output.data, .size = output.size}, &output1);
+    fds_log(FINFO, "Decompressed data = %.*s",output1.size, (char*)output1.data);
+    
     fds_log(FINFO, "Hello temaune!! hahaha\n");
     return 0;
 }
