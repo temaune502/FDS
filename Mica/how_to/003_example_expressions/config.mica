@@ -1,0 +1,9 @@
+build = {
+    debug = true
+    width = 1920
+    height = 1080
+    pixels = .width * .height
+    high_resolution = .width >= 1920 && .height >= 1080
+    target_fps = .debug ? 60 : 144
+    buffer_size = clamp(.pixels / 2, 1024, 4194304)
+}

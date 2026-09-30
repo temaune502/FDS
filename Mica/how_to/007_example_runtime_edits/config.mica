@@ -1,0 +1,6 @@
+config = {
+    theme = "dark"
+    out_path = "./build"
+    width = 1280
+    aspect_ratio = .width / 720
+}

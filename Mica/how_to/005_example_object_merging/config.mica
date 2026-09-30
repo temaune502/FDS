@@ -1,0 +1,10 @@
+base_window = {
+    width = 1280
+    height = 720
+    title = "Base ${.width}x${.height}"
+}
+
+desktop_window = base_window + {
+    width = 2560
+    height = 1440
+}

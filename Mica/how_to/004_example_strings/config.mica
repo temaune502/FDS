@@ -1,0 +1,8 @@
+window = {
+    name = "Mica Studio"
+    width = 1280
+    height = 720
+    title = "${.name} — ${.width}x${.height}"
+    license = '''Copyright 2026.
+${this_is_literal}, not interpolation.'''
+}

@@ -1,0 +1,5 @@
+network = {
+    retries = 3
+    timeout = 10 / 0
+    safe_mode = false && (1 / 0 > 0) || true
+}
