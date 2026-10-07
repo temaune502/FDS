@@ -1,7 +1,21 @@
 #ifndef FDS_H
 #define FDS_H
-
-/* Include this header first in a translation unit so POSIX feature macros apply. */
+/*//////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                  
+//                                              FDS
+//      Author: temaune(Arti Elorian)
+//      This is my library with different useful featurs made only for my project.
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//////////////////////////////////////////////////////////////////////////////////////////////////////*/
 #if !defined(_WIN32)
 #ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE
@@ -22,12 +36,6 @@
 #define zero {0}
 #endif
 
-// #ifndef DANGER_THINGS_OFF
-
-// // Very DANGER but useful
-// #pragma GCC system_header
-
-// #endif
 
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
@@ -49,13 +57,39 @@ extern "C"
 #include <stdint.h>
 #include <time.h>
 
-#define KB ((size_t)1024)
+
+typedef int64_t   s64;
+typedef int32_t   s32;
+typedef int16_t   s16;
+typedef int8_t    s8;
+typedef uint8_t   u8;
+typedef uint16_t  u16;
+typedef uint32_t  u32;
+typedef uint64_t  u64;
+typedef size_t    usize;
+typedef ptrdiff_t isize;
+typedef float     f32;
+typedef double    f64;
+typedef uintptr_t uptr;
+typedef intptr_t  iptr;
+
+#define SV(cstr_lit) sv_from_parts(cstr_lit, sizeof(cstr_lit) - 1)
+
+#define SV_NULL sv_from_parts(NULL, 0)
+
+#define SV_STATIC(cstr_lit)   \
+    {                         \
+        sizeof(cstr_lit) - 1, \
+        (cstr_lit)            \
+    }
+
+#define KB ((usize)1024)
 #define MB (KB * 1024)
 #define GB (MB * 1024)
 #define TB (GB * 1024)
 
 #ifndef TEMP_ARENA_SIZE
-#define TEMP_ARENA_SIZE (8 * MB)
+#define TEMP_ARENA_SIZE (16 * MB)
 #endif
 
 #ifndef SV_NPOS
@@ -69,25 +103,15 @@ extern "C"
 #ifndef ALIGNMENT
 #define ALIGNMENT 16 /* must be a power of two */
 #endif
-#define ALIGN(s) (((size_t)(s) + (ALIGNMENT - 1)) & ~((size_t)(ALIGNMENT - 1)))
+#define ALIGN(s) (((usize)(s) + (ALIGNMENT - 1)) & ~((usize)(ALIGNMENT - 1)))
 
-#define FOOTER_SIZE sizeof(size_t)
+#define FOOTER_SIZE sizeof(usize)
 #define MIN_BLOCK_SIZE ALIGN(HEADER_SIZE + FOOTER_SIZE)
 
 #define array_len(arr) (sizeof(arr) / sizeof((arr)[0]))
 
-#define FDS_PANIC(...) fds_log(FFATAL, __VA_ARGS__);
-
-#define FDS_LZ_MAGIC_0 0x46 // 'F'
-#define FDS_LZ_MAGIC_1 0x43 // 'C'
-
-#define FDS_LZ_MODE_RAW 0x00
-#define FDS_LZ_MODE_LZSS 0x01
-
-#define FDS_LZ_WINDOW_SIZE 4096
-#define FDS_LZ_MIN_MATCH 3
-#define FDS_LZ_MAX_MATCH 18
-#define FDS_LZ_HASH_SIZE 4096
+#define SV_FMT "%.*s"
+#define SV_ARGS(sv) (s32)(sv).count, (sv).data /* s32 cast is required by printf's "%.*s" */
 
 #define TODO(...)                                                             \
     do                                                                        \
@@ -97,7 +121,7 @@ extern "C"
         fprintf(stderr, "\n");                                                \
     } while (0)
 
-#define fds_unused (void)
+#define fds_unused(e) (void)(e)
 
 #define fds_da_write(filepath, da) \
     fds_da_write_file((filepath), (da)->items, (da)->count, sizeof(*(da)->items))
@@ -113,22 +137,16 @@ extern "C"
 // Читає дані безпосередньо у змінну за її адресою
 #define fds_file_read_val(file, val_ptr) fds_file_read((file), (val_ptr), sizeof(*(val_ptr)))
 
-#define fds_file_skip_type(file, type) fds_file_skip((file), (int64_t)sizeof((type)))
+#define fds_file_skip_type(file, type) fds_file_skip((file), (s64)sizeof((type)))
 
-// Читає дані та повертає їх як результат (зручно для присвоєння: x = fds_file_get(f, int))
+// Читає дані та повертає їх як результат (зручно для присвоєння: x = fds_file_get(f, s32))
 #define fds_file_get(file, type) \
     ({ type _tmp; fds_file_read((file), &_tmp, sizeof(type)) == sizeof(type) ? _tmp : (type)zero; })
 
 #define DA_FIELDS \
-    size_t count; \
-    size_t capacity
+    usize count; \
+    usize capacity
 
-    // #ifndef FDS_MALLOC
-    // #define FDS_CALLOC(a,p) calloc((a), (p));
-    // #define FDS_MALLOC(sz) malloc(sz)
-    // #define FDS_REALLOC(ptr, sz) realloc(ptr, sz)
-    // #define FDS_FREE(ptr) free((ptr))
-    // #endif
 
 #ifdef __cplusplus
 #define FDS_THREAD_LOCAL thread_local
@@ -141,28 +159,28 @@ extern "C"
 #endif
 
 #define TEMP_THREAD_SCOPE()                                                                \
-    __attribute__((cleanup(_temp_arena_thread_cleanup))) int _temp_arena_thread_dummy = 0; \
+    __attribute__((cleanup(_temp_arena_thread_cleanup))) s32 _temp_arena_thread_dummy = 0; \
     /* Immediately initialize the arena (optional, but useful) */                          \
     (void)temp_arena_get()
 
-#define TEMP_BUF(size) fixed_arena_alloc(temp_arena_get(), (size))
+#define temp_buf(size) fixed_arena_alloc(temp_arena_get(), (size))
 
 // Allocate an array of the given type
-#define TEMP_ARRAY(Type, count) \
+#define temp_array(Type, count) \
     ((Type *)fixed_arena_alloc_array(temp_arena_get(), (count), sizeof(Type)))
 
 // Copy the line
-#define TEMP_STRDUP(str) \
+#define temp_strdup(str) \
     fixed_arena_strdup(temp_arena_get(), (str))
 
 // Generate a string via sprintf in a temporary buffer
 // Returns a char* null-terminated string.
-// Format: TEMP_SPRINTF("Hello %s", name)
-#define TEMP_SPRINTF(fmt, ...) \
+// Format: temp_sprintf("Hello %s", name)
+#define temp_sprintf(fmt, ...) \
     temp_arena_sprintf(temp_arena_get(), (fmt), __VA_ARGS__)
 
-#define TEMP_RESTORE(mark) fixed_arena_restore(temp_arena_get(), (mark))
-#define TEMP_MARK() fixed_arena_mark(temp_arena_get())
+#define temp_restore(mark) fixed_arena_restore(temp_arena_get(), (mark))
+#define temp_mark() fixed_arena_mark(temp_arena_get())
 
 #define TEMP_SCOPE() \
     __attribute__((cleanup(temp_arena_restore_mark))) FixedArenaMark temp_mark = fixed_arena_mark(temp_arena_get())
@@ -190,7 +208,7 @@ extern "C"
 #endif
 
     // Allocator functions from reading file
-    typedef void *(*allocator)(size_t);
+    typedef void *(*allocator)(usize);
 
     //=======================================================
     //                    Allocator
@@ -199,59 +217,59 @@ extern "C"
 
     typedef struct fds_allocator_stats
     {
-        size_t alloc_count;
-        size_t realloc_count;
-        size_t free_count;
-        size_t tmp_alloc_calls;
-        size_t tmp_new_blocks;
-        size_t permanent_count;
-        size_t current_allocated;
-        size_t peak_allocated;
-        size_t total_allocated;
-        size_t total_freed;
+        usize alloc_count;
+        usize realloc_count;
+        usize free_count;
+        usize tmp_alloc_calls;
+        usize tmp_new_blocks;
+        usize permanent_count;
+        usize current_allocated;
+        usize peak_allocated;
+        usize total_allocated;
+        usize total_freed;
     } fds_allocator_stats;
 
     struct fds_allocator
     {
-        void *(*alloc_fn)(fds_allocator *a, size_t size);
-        void *(*calloc_fn)(fds_allocator *a, size_t num, size_t size);
-        void *(*realloc_fn)(fds_allocator *a, void *ptr, size_t size);
+        void *(*alloc_fn)(fds_allocator *a, usize size);
+        void *(*calloc_fn)(fds_allocator *a, usize num, usize size);
+        void *(*realloc_fn)(fds_allocator *a, void *ptr, usize size);
         void (*free_fn)(fds_allocator *a, void *ptr);
-        void *(*alloc_tmp_fn)(fds_allocator *a, size_t size);
-        void *(*alloc_permanent_fn)(fds_allocator *a, size_t size);
+        void *(*alloc_tmp_fn)(fds_allocator *a, usize size);
+        void *(*alloc_permanent_fn)(fds_allocator *a, usize size);
 
         void *all_blocks;
         void *tmp_active;
         void *tmp_free;
 
-        size_t live_blocks_count;
+        usize live_blocks_count;
 
 #ifdef DEBUG_MEM
-        size_t stats_alloc_count;
-        size_t stats_realloc_count;
-        size_t stats_free_count;
-        size_t stats_tmp_alloc_calls;
-        size_t stats_tmp_new_blocks;
-        size_t stats_permanent_count;
-        size_t stats_current_allocated;
-        size_t stats_peak_allocated;
-        size_t stats_total_allocated;
-        size_t stats_total_freed;
+        usize stats_alloc_count;
+        usize stats_realloc_count;
+        usize stats_free_count;
+        usize stats_tmp_alloc_calls;
+        usize stats_tmp_new_blocks;
+        usize stats_permanent_count;
+        usize stats_current_allocated;
+        usize stats_peak_allocated;
+        usize stats_total_allocated;
+        usize stats_total_freed;
 #endif
     };
 
     typedef struct block_header
     {
-        uint32_t magic;
-        uint32_t is_tmp : 1;
-        uint32_t is_permanent : 1;
+        u32 magic;
+        u32 is_tmp : 1;
+        u32 is_permanent : 1;
         fds_allocator *owner;
-        size_t size;
+        usize size;
         struct block_header *next;
         struct block_header *prev;
 #ifdef DEBUG_MEM
         const char *file;
-        int line;
+        s32 line;
 #endif
     } block_header;
 
@@ -264,6 +282,7 @@ extern "C"
         FINFO = 0,
         FWARN,
         FERROR,
+        FDEBUG,
         FFATAL
     } fds_log_level;
 
@@ -274,8 +293,8 @@ extern "C"
     typedef struct
     {
         char **data;     // array of owned strings
-        size_t size;     // number of strings currently stored
-        size_t capacity; // allocated slots
+        usize size;     // number of strings currently stored
+        usize capacity; // allocated slots
     } StringArray;
 
     //=======================================================
@@ -283,8 +302,8 @@ extern "C"
     //=======================================================
     typedef struct
     {
-        size_t count;
-        size_t capacity;
+        usize count;
+        usize capacity;
         char *items;
     } SB;
 
@@ -293,12 +312,11 @@ extern "C"
     //=======================================================
     typedef struct
     {
-        size_t count;
+        usize count;
         const char *data;
     } SV;
 
-#define SV_FMT "%.*s"
-#define SV_ARGS(sv) (int)(sv).count, (sv).data /* int cast is required by printf's "%.*s" */
+
 
     //=======================================================
     //                        Fixed Arena
@@ -306,11 +324,11 @@ extern "C"
     typedef struct
     {
         unsigned char *data;
-        size_t offset;
-        size_t capacity;
+        usize offset;
+        usize capacity;
     } FixedArena;
 
-    typedef size_t FixedArenaMark;
+    typedef usize FixedArenaMark;
 
     //=======================================================
     //          INI parser structs
@@ -327,16 +345,16 @@ extern "C"
     {
         SV name;
         IniKV *items; // Dynamic array (controlled by macros da_*)
-        size_t count;
-        size_t capacity;
+        usize count;
+        usize capacity;
     } IniSection;
 
     // The main structure of the INI config
     typedef struct
     {
         IniSection *items; // Dynamic array of sections
-        size_t count;
-        size_t capacity;
+        usize count;
+        usize capacity;
         FixedArena arena; // An arena for storing the entire contents of an INI file
     } IniConfig;
 
@@ -347,7 +365,7 @@ extern "C"
     {
         void *internal_handle;
         void *internal_find_data;
-        int is_first;
+        s32 is_first;
     } FdsDirIter;
 
     //=======================================================
@@ -378,12 +396,12 @@ extern "C"
     typedef struct
     {
         Flag *items;
-        size_t count;
-        size_t capacity;
+        usize count;
+        usize capacity;
 
         SV *args;
-        size_t args_count;
-        size_t args_cap;
+        usize args_count;
+        usize args_cap;
 
         char *name;
         void (*usage_func)(void);
@@ -392,60 +410,33 @@ extern "C"
     typedef struct
     {
         SV *items;
-        size_t count;
-        size_t capacity;
+        usize count;
+        usize capacity;
     } da_SV;
     typedef struct
     {
-        int *items;
-        size_t count;
-        size_t capacity;
+        s32 *items;
+        usize count;
+        usize capacity;
     } da_int;
     typedef struct
     {
-        float *items;
-        size_t count;
-        size_t capacity;
+        f32 *items;
+        usize count;
+        usize capacity;
     } da_float;
 
     // Procs struct
     typedef struct
     {
         bool success;      // Чи вдалося взагалі запустити процес (false, якщо файла не існує)
-        int exit_code;     // Код завершення програми (0 = успіх)
+        s32 exit_code;     // Код завершення програми (0 = успіх)
         char *stdout_data; // Буфер стандартного виводу (завжди нуль-термінований)
         char *stderr_data; // Буфер виводу помилок (завжди нуль-термінований)
-        size_t stdout_len; // Довжина виводу
-        size_t stderr_len; // Довжина помилок
+        usize stdout_len; // Довжина виводу
+        usize stderr_len; // Довжина помилок
     } fds_cmd_result;
 
-    /////////////////////////////////////////////
-    ////               Event              ///////
-    /////////////////////////////////////////////
-    typedef uint32_t FdsEventType;
-
-    typedef struct
-    {
-        FdsEventType type;
-        uint64_t timestamp;
-        union
-        {
-            int32_t i32[4];
-            uint32_t u32[4];
-            float f32[4];
-            uint64_t u64[2];
-            void *ptr;
-        } as;
-    } FdsEvent;
-
-    typedef struct
-    {
-        FdsEvent *buffer;
-        size_t capacity;
-        size_t head;
-        size_t tail;
-        size_t count;
-    } FdsEventQueue;
 
     /////////////////////////////////////////////
     ////               Compression        ///////
@@ -463,15 +454,15 @@ extern "C"
     // A dynamically growing buffer for writing binary data.
     typedef struct
     {
-        uint8_t *data;   // Pointer to allocated memory
-        size_t size;     // Current number of bytes written
-        size_t capacity; // Total allocated capacity
+        u8 *data;   // Pointer to allocated memory
+        usize size;     // Current number of bytes written
+        usize capacity; // Total allocated capacity
     } FdsBytesBuilder;
 
     typedef struct
     {
-        const uint8_t *data;
-        size_t size;
+        const u8 *data;
+        usize size;
     } FdsBytesView;
     /////////////////////////////////////////////
     ////               File               ///////
@@ -491,7 +482,7 @@ extern "C"
     typedef struct
     {
         char magic[4];    // 4-байтний ідентифікатор формату
-        uint32_t version; // Версія структури даних
+        u32 version; // Версія структури даних
     } FdsFileHeader;
 #pragma pack(pop)
 
@@ -504,7 +495,7 @@ extern "C"
 
     typedef struct
     {
-        uintptr_t handle;
+        uptr handle;
         bool is_valid;
     } FdsFile;
 
@@ -517,9 +508,9 @@ extern "C"
     typedef struct
     {
         void *data;               // Вказівник на початок проєкції в RAM
-        size_t size;              // Точний розмір файлу в байтах
-        uintptr_t file_handle;    // OS file handle (int fd або HANDLE)
-        uintptr_t mapping_handle; // Потрібен тільки для Windows (HANDLE), на POSIX = 0
+        usize size;              // Точний розмір файлу в байтах
+        uptr file_handle;    // OS file handle (s32 fd або HANDLE)
+        uptr mapping_handle; // Потрібен тільки для Windows (HANDLE), на POSIX = 0
         bool is_valid;
     } FdsMappedFile;
     //=================================================================================================================================
@@ -529,7 +520,7 @@ extern "C"
     // Bytes fuctions
     //  Creates a new builder with an optional initial capacity (0 is fine).
     //  e.g., FdsBytesBuilder bb = fds_bb_create(1024);
-    FdsBytesBuilder fds_bb_create(size_t initial_capacity);
+    FdsBytesBuilder fds_bb_create(usize initial_capacity);
 
     // Frees the underlying memory of the builder.
     // e.g., fds_bb_destroy(&bb);
@@ -537,7 +528,7 @@ extern "C"
 
     // Ensures the builder has enough capacity to add 'additional_size' bytes.
     // Automatically called by append functions, but useful for pre-allocating.
-    void fds_bb_reserve(FdsBytesBuilder *bb, size_t additional_size);
+    void fds_bb_reserve(FdsBytesBuilder *bb, usize additional_size);
 
     // Resets the size to 0 but keeps the allocated memory (capacity remains).
     void fds_bb_clear(FdsBytesBuilder *bb);
@@ -565,41 +556,41 @@ extern "C"
 
     // Appends a raw memory block to the builder.
     // e.g., fds_bb_append(&bb, &my_struct, sizeof(my_struct));
-    void fds_bb_append(FdsBytesBuilder *bb, const void *data, size_t size);
+    void fds_bb_append(FdsBytesBuilder *bb, const void *data, usize size);
 
     // Appends a single byte.
     // e.g., fds_bb_append_byte(&bb, 0xFF);
-    void fds_bb_append_byte(FdsBytesBuilder *bb, uint8_t byte);
+    void fds_bb_append_byte(FdsBytesBuilder *bb, u8 byte);
 
     // Appends a 16-bit unsigned integer (Little-Endian).
-    void fds_bb_append_u16_le(FdsBytesBuilder *bb, uint16_t val);
+    void fds_bb_append_u16_le(FdsBytesBuilder *bb, u16 val);
 
     // Appends a 16-bit unsigned integer (Big-Endian / Network Order).
-    void fds_bb_append_u16_be(FdsBytesBuilder *bb, uint16_t val);
+    void fds_bb_append_u16_be(FdsBytesBuilder *bb, u16 val);
 
     // Appends a 32-bit unsigned integer (Little-Endian).
-    void fds_bb_append_u32_le(FdsBytesBuilder *bb, uint32_t val);
+    void fds_bb_append_u32_le(FdsBytesBuilder *bb, u32 val);
 
     // Appends a 32-bit unsigned integer (Big-Endian / Network Order).
-    void fds_bb_append_u32_be(FdsBytesBuilder *bb, uint32_t val);
+    void fds_bb_append_u32_be(FdsBytesBuilder *bb, u32 val);
 
     // Appends a 64-bit unsigned integer
-    void fds_bb_append_u64_le(FdsBytesBuilder *bb, uint64_t val);
-    void fds_bb_append_u64_be(FdsBytesBuilder *bb, uint64_t val);
+    void fds_bb_append_u64_le(FdsBytesBuilder *bb, u64 val);
+    void fds_bb_append_u64_be(FdsBytesBuilder *bb, u64 val);
 
-    // Appends a 32-bit float (IEEE 754) safely
-    void fds_bb_append_f32_le(FdsBytesBuilder *bb, float val);
-    void fds_bb_append_f32_be(FdsBytesBuilder *bb, float val);
+    // Appends a 32-bit f32 (IEEE 754) safely
+    void fds_bb_append_f32_le(FdsBytesBuilder *bb, f32 val);
+    void fds_bb_append_f32_be(FdsBytesBuilder *bb, f32 val);
 
-    // Appends a 64-bit double (IEEE 754) safely
-    void fds_bb_append_f64_le(FdsBytesBuilder *bb, double val);
-    void fds_bb_append_f64_be(FdsBytesBuilder *bb, double val);
+    // Appends a 64-bit f64 (IEEE 754) safely
+    void fds_bb_append_f64_le(FdsBytesBuilder *bb, f64 val);
+    void fds_bb_append_f64_be(FdsBytesBuilder *bb, f64 val);
 
     // Повертає поточну позицію (offset) для майбутнього патчінгу
-    size_t fds_bb_get_pos(const FdsBytesBuilder *bb);
+    usize fds_bb_get_pos(const FdsBytesBuilder *bb);
 
     // Перезаписує 32-бітне число за вказаним зміщенням (без зміни розміру буфера)
-    void fds_bb_patch_u32_le(FdsBytesBuilder *bb, size_t offset, uint32_t val);
+    void fds_bb_patch_u32_le(FdsBytesBuilder *bb, usize offset, u32 val);
 
     // Додає класичний C-рядок (з нуль-термінатором на кінці)
     void fds_bb_append_cstr(FdsBytesBuilder *bb, const char *str);
@@ -615,7 +606,7 @@ extern "C"
 
     // Creates a BytesView from a raw data pointer and size.
     // e.g., fds_bv(buffer, 1024);
-    FdsBytesView fds_bv(const void *data, size_t size);
+    FdsBytesView fds_bv(const void *data, usize size);
 
     // Returns an empty BytesView (data = NULL, size = 0).
     FdsBytesView fds_bv_empty(void);
@@ -631,14 +622,14 @@ extern "C"
 
     // Safely extracts a sub-region from the view. Clamps length to available size.
     // e.g., FdsBytesView payload = fds_bv_subview(packet, 12, 100); // skip 12 byte header
-    FdsBytesView fds_bv_subview(FdsBytesView view, size_t offset, size_t length);
+    FdsBytesView fds_bv_subview(FdsBytesView view, usize offset, usize length);
 
     // Returns a view containing the first 'count' bytes. Clamps to view.size.
-    FdsBytesView fds_bv_take(FdsBytesView view, size_t count);
+    FdsBytesView fds_bv_take(FdsBytesView view, usize count);
 
     // Returns a view skipping the first 'count' bytes. Clamps to view.size.
     // e.g., view = fds_bv_skip(view, 4); // skip 4 bytes of magic number
-    FdsBytesView fds_bv_skip(FdsBytesView view, size_t count);
+    FdsBytesView fds_bv_skip(FdsBytesView view, usize count);
 
     // ============================================================================
     // Allocator functions
@@ -657,26 +648,26 @@ extern "C"
     void fds_allocator_clear_tmp(fds_allocator *a);
 
     // Статистика та логування
-    size_t fds_allocator_live_blocks_count(fds_allocator *a);
+    usize fds_allocator_live_blocks_count(fds_allocator *a);
 #ifdef DEBUG_MEM
     void fds_allocator_get_stats(fds_allocator *a, fds_allocator_stats *out_stats);
     void fds_allocator_print_stats(fds_allocator *a);
 #endif
 
     // Внутрішні реалізації алокації
-    void *fds_alloc_impl(fds_allocator *a, size_t size);
-    void *fds_calloc_impl(fds_allocator *a, size_t num, size_t size);
-    void *fds_realloc_impl(fds_allocator *a, void *ptr, size_t size);
+    void *fds_alloc_impl(fds_allocator *a, usize size);
+    void *fds_calloc_impl(fds_allocator *a, usize num, usize size);
+    void *fds_realloc_impl(fds_allocator *a, void *ptr, usize size);
     void fds_free_impl(fds_allocator *a, void *ptr);
-    void *fds_alloc_tmp_impl(fds_allocator *a, size_t size);
-    void *fds_alloc_permanent_impl(fds_allocator *a, size_t size);
+    void *fds_alloc_tmp_impl(fds_allocator *a, usize size);
+    void *fds_alloc_permanent_impl(fds_allocator *a, usize size);
 
 #ifdef DEBUG_MEM
-    void *fds_alloc_impl_tracked(fds_allocator *a, size_t size, const char *file, int line);
-    void *fds_calloc_impl_tracked(fds_allocator *a, size_t num, size_t size, const char *file, int line);
-    void *fds_realloc_impl_tracked(fds_allocator *a, void *ptr, size_t size, const char *file, int line);
-    void *fds_alloc_tmp_impl_tracked(fds_allocator *a, size_t size, const char *file, int line);
-    void *fds_alloc_permanent_impl_tracked(fds_allocator *a, size_t size, const char *file, int line);
+    void *fds_alloc_impl_tracked(fds_allocator *a, usize size, const char *file, s32 line);
+    void *fds_calloc_impl_tracked(fds_allocator *a, usize num, usize size, const char *file, s32 line);
+    void *fds_realloc_impl_tracked(fds_allocator *a, void *ptr, usize size, const char *file, s32 line);
+    void *fds_alloc_tmp_impl_tracked(fds_allocator *a, usize size, const char *file, s32 line);
+    void *fds_alloc_permanent_impl_tracked(fds_allocator *a, usize size, const char *file, s32 line);
 #endif
 
 // Макроси-обгортки
@@ -739,75 +730,73 @@ extern "C"
     bool fds_bv_has_suffix(FdsBytesView view, FdsBytesView suffix);
 
     // Finds the first occurrence of a specific byte. Returns index, or -1 if not found.
-    // e.g., intptr_t null_pos = fds_bv_find_byte(view, 0x00);
-    intptr_t fds_bv_find_byte(FdsBytesView view, uint8_t byte);
+    // e.g., iptr null_pos = fds_bv_find_byte(view, 0x00);
+    iptr fds_bv_find_byte(FdsBytesView view, u8 byte);
 
     // Finds the first occurrence of a byte pattern. Returns index, or -1 if not found.
-    // e.g., intptr_t sig_pos = fds_bv_find_subview(view, fds_bv(signature, 4));
-    intptr_t fds_bv_find_subview(FdsBytesView view, FdsBytesView pattern);
+    // e.g., iptr sig_pos = fds_bv_find_subview(view, fds_bv(signature, 4));
+    iptr fds_bv_find_subview(FdsBytesView view, FdsBytesView pattern);
 
     // ============================================================================
     // STREAM PARSING (Mutates the view pointer/size directly to advance through data)
     // ============================================================================
 
     // Pops 1 byte from the front of the view and advances it. Returns false if empty.
-    // e.g., uint8_t type; if (fds_bv_pop_byte(&stream, &type)) { ... }
-    bool fds_bv_pop_byte(FdsBytesView *view, uint8_t *out_byte);
+    // e.g., u8 type; if (fds_bv_pop_byte(&stream, &type)) { ... }
+    bool fds_bv_pop_byte(FdsBytesView *view, u8 *out_byte);
 
     // Pops 'count' bytes from the front, returning them as a new view, and advances the original view.
     // e.g., FdsBytesView header = fds_bv_pop_bytes(&stream, 16);
-    FdsBytesView fds_bv_pop_bytes(FdsBytesView *view, size_t count);
+    FdsBytesView fds_bv_pop_bytes(FdsBytesView *view, usize count);
 
     // Reads a 16-bit unsigned integer (Little-Endian) and advances the view by 2 bytes.
-    bool fds_bv_read_u16_le(FdsBytesView *view, uint16_t *out_val);
+    bool fds_bv_read_u16_le(FdsBytesView *view, u16 *out_val);
 
     // Reads a 16-bit unsigned integer (Big-Endian / Network Order) and advances the view by 2 bytes.
-    // e.g., uint16_t port; fds_bv_read_u16_be(&tcp_packet, &port);
-    bool fds_bv_read_u16_be(FdsBytesView *view, uint16_t *out_val);
+    // e.g., u16 port; fds_bv_read_u16_be(&tcp_packet, &port);
+    bool fds_bv_read_u16_be(FdsBytesView *view, u16 *out_val);
 
     // Reads a 32-bit unsigned integer (Little-Endian) and advances the view by 4 bytes.
-    // e.g., uint32_t chunk_size; fds_bv_read_u32_le(&png_stream, &chunk_size);
-    bool fds_bv_read_u32_le(FdsBytesView *view, uint32_t *out_val);
+    // e.g., u32 chunk_size; fds_bv_read_u32_le(&png_stream, &chunk_size);
+    bool fds_bv_read_u32_le(FdsBytesView *view, u32 *out_val);
 
     // Reads a 32-bit unsigned integer (Big-Endian / Network Order) and advances the view by 4 bytes.
-    bool fds_bv_read_u32_be(FdsBytesView *view, uint32_t *out_val);
+    bool fds_bv_read_u32_be(FdsBytesView *view, u32 *out_val);
 
     // Reads a 64-bit unsigned integer (Little-Endian / Big-Endian)
-    bool fds_bv_read_u64_le(FdsBytesView *view, uint64_t *out_val);
-    bool fds_bv_read_u64_be(FdsBytesView *view, uint64_t *out_val);
+    bool fds_bv_read_u64_le(FdsBytesView *view, u64 *out_val);
+    bool fds_bv_read_u64_be(FdsBytesView *view, u64 *out_val);
 
-    // Reads a 32-bit float (IEEE 754) safely avoiding strict-aliasing UB
-    bool fds_bv_read_f32_le(FdsBytesView *view, float *out_val);
-    bool fds_bv_read_f32_be(FdsBytesView *view, float *out_val);
+    // Reads a 32-bit f32 (IEEE 754) safely avoiding strict-aliasing UB
+    bool fds_bv_read_f32_le(FdsBytesView *view, f32 *out_val);
+    bool fds_bv_read_f32_be(FdsBytesView *view, f32 *out_val);
 
-    // Reads a 64-bit double (IEEE 754)
-    bool fds_bv_read_f64_le(FdsBytesView *view, double *out_val);
-    bool fds_bv_read_f64_be(FdsBytesView *view, double *out_val);
+    // Reads a 64-bit f64 (IEEE 754)
+    bool fds_bv_read_f64_le(FdsBytesView *view, f64 *out_val);
+    bool fds_bv_read_f64_be(FdsBytesView *view, f64 *out_val);
 
     // Читає рядок, очікуючи u16 префікс довжини.
     // Повертає View, що вказує лише на текст (без копіювання!).
     bool fds_bv_read_string_u16(FdsBytesView *view, FdsBytesView *out_str_view);
 
-    // Compression
-    FdsCompressStatus fds_compress_lz(FdsBytesView input, FdsBytesBuilder *out_builder);
-    bool fds_decompress_lz(FdsBytesView input, FdsBytesBuilder *out_builder);
+
 
     // honestly, I don't remember why I wrote it, but for something important, so it should be left
-    static inline int safe_add(size_t a, size_t b, size_t *res);
+    static inline s32 safe_add(usize a, usize b, usize *res);
 
     // Logging fuctions Start ================================================================================================================
     static inline bool fds_should_use_color(FILE *stream);
-    void fds_log_impl(fds_log_level level, const char *file, int line, const char *func, const char *fmt, ...);
+    void fds_log_impl(fds_log_level level, const char *file, s32 line, const char *func, const char *fmt, ...);
     // Logging fuctions End ================================================================================================================
 
     // Console utils fuctions Start ================================================================================================================
 
-    void fds_cli_init(int *argc, char ***argv);
+    void fds_cli_init(s32 *argc, char ***argv);
 #ifdef _WIN32
     char *fds_internal_utf16_to_utf8(const wchar_t *utf16_str);
     static wchar_t *fds_internal_utf8_to_utf16(const char *utf8_str);
 #endif
-    size_t utf8_strlen(const char *s);
+    usize utf8_strlen(const char *s);
 
     // Console utils fuctions End ================================================================================================================
 
@@ -818,17 +807,17 @@ extern "C"
     void flagset_var(FlagSet *fs, FlagType type, void *ptr, const char *name, const char *defval, const char *usage);
     void flagset_required(FlagSet *fs); // marks the last added checkbox as required
 
-    void flagset_parse(FlagSet *fs, int argc, char **argv);
-    size_t flagset_narg(FlagSet *fs);
-    SV flagset_arg(FlagSet *fs, size_t i);
+    void flagset_parse(FlagSet *fs, s32 argc, char **argv);
+    usize flagset_narg(FlagSet *fs);
+    SV flagset_arg(FlagSet *fs, usize i);
     void flagset_usage(FlagSet *fs);
     static Flag *find_flag(FlagSet *fs, SV name);
     static void set_flag_value(Flag *f, SV val);
 
     static inline void flagset_bool(FlagSet *fs, bool *ptr, const char *name, bool defval, const char *usage);
     static inline void flagset_string(FlagSet *fs, char **ptr, const char *name, const char *defval, const char *usage);
-    static inline void flagset_int(FlagSet *fs, int *ptr, const char *name, int defval, const char *usage);
-    static inline void flagset_float(FlagSet *fs, float *ptr, const char *name, float defval, const char *usage);
+    static inline void flagset_int(FlagSet *fs, s32 *ptr, const char *name, s32 defval, const char *usage);
+    static inline void flagset_float(FlagSet *fs, f32 *ptr, const char *name, f32 defval, const char *usage);
     static inline void flagset_string_list(FlagSet *fs, void *list, const char *name, const char *usage);
     static inline void flagset_int_list(FlagSet *fs, void *list, const char *name, const char *usage);
     static inline void flagset_float_list(FlagSet *fs, void *list, const char *name, const char *usage);
@@ -848,11 +837,11 @@ extern "C"
     bool sa_append_array(StringArray *dst, const StringArray *src); // add all rows from another array
 
     void sa_trim(StringArray *sa);                // trim spaces on both sides of each line
-    bool sa_trim_at(StringArray *sa, size_t idx); // trim a specific line
+    bool sa_trim_at(StringArray *sa, usize idx); // trim a specific line
 
     // Find the index of the first row that exactly matches (case sensitive).
     // Returns -1 (or SIZE_MAX) if not found.
-    size_t sa_find(const StringArray *sa, const char *str);
+    usize sa_find(const StringArray *sa, const char *str);
     bool sa_contains(const StringArray *sa, const char *str); // is there such a line?
 
     // Combine all lines into one, inserting a delimiter between them.
@@ -863,13 +852,13 @@ extern "C"
     // If skip_empty == true, empty fragments are not added.
     bool sa_split(StringArray *sa, const char *str, const char *delimiter, bool skip_empty);
 
-    size_t sa_find_custom(const StringArray *sa, const char *needle,
-                          int (*cmp)(const char *, const char *));
+    usize sa_find_custom(const StringArray *sa, const char *needle,
+                          s32 (*cmp)(const char *, const char *));
     void sa_to_lower(StringArray *sa);
     void sa_to_upper(StringArray *sa);
     void sa_reverse(StringArray *sa);
     // Sort the array. If cmp == NULL, strcmp() is used.
-    void sa_sort(StringArray *sa, int (*cmp)(const void *, const void *));
+    void sa_sort(StringArray *sa, s32 (*cmp)(const void *, const void *));
     //============================================================
     // Conclusion
     // ============================================================
@@ -880,104 +869,74 @@ extern "C"
     void sa_fprint(FILE *stream, const StringArray *sa);
 
     // --- Lifecycle ---
-    bool sa_new(StringArray *sa, size_t initial_cap);
+    bool sa_new(StringArray *sa, usize initial_cap);
     void sa_free(StringArray *sa);
 
     // --- Adding / removing ---
     bool sa_push(StringArray *sa, const char *str); // copies the string
     bool sa_push_many_impl(StringArray *sa, const char *first, ...);
     char *sa_pop(StringArray *sa); // caller must free() the returned string
-    bool sa_insert(StringArray *sa, size_t idx, const char *str);
-    bool sa_remove(StringArray *sa, size_t idx);
+    bool sa_insert(StringArray *sa, usize idx, const char *str);
+    bool sa_remove(StringArray *sa, usize idx);
 
     // --- Access ---
-    char *sa_get(StringArray *sa, size_t idx);                 // NULL if out of bounds
-    bool sa_set(StringArray *sa, size_t idx, const char *str); // replaces, frees old
+    char *sa_get(StringArray *sa, usize idx);                 // NULL if out of bounds
+    bool sa_set(StringArray *sa, usize idx, const char *str); // replaces, frees old
 
     // --- Utility ---
-    size_t sa_len(StringArray *sa);
+    usize sa_len(StringArray *sa);
     void sa_clear(StringArray *sa); // empties but keeps capacity
 
     static bool sa_grow(StringArray *sa);
 
     // String Array fuctions End================================================================================================================
 
-    // Event fuctions Start================================================================================================================
-    // Ініціалізація та очищення
-    FdsEventQueue fds_event_queue_init(FdsEvent *buffer, size_t capacity);
-    void fds_event_clear(FdsEventQueue *q);
-
-    // Операції запису та читання
-    bool fds_event_push(FdsEventQueue *q, FdsEvent event);
-    bool fds_event_poll(FdsEventQueue *q, FdsEvent *out_event);
-    size_t fds_event_poll_many(FdsEventQueue *q, FdsEvent *events, size_t capacity);
-    bool fds_event_peek(const FdsEventQueue *q, FdsEvent *out_event);
-
-    // Пропуск / видалення подій
-    bool fds_event_discard(FdsEventQueue *q);
-    size_t fds_event_discard_many(FdsEventQueue *q, size_t count);
-
-    // Інспекція стану
-    bool fds_event_is_empty(const FdsEventQueue *q);
-    bool fds_event_is_full(const FdsEventQueue *q);
-    size_t fds_event_count(const FdsEventQueue *q);
-    size_t fds_event_capacity(const FdsEventQueue *q);
-    size_t fds_event_remaining(const FdsEventQueue *q);
-
-    // Фабричні функції (створення з обнуленням union)
-    FdsEvent fds_event_make(FdsEventType type, uint64_t timestamp);
-    FdsEvent fds_event_make_i32(FdsEventType type, uint64_t timestamp, int32_t value);
-    FdsEvent fds_event_make_u32(FdsEventType type, uint64_t timestamp, uint32_t value);
-    FdsEvent fds_event_make_f32(FdsEventType type, uint64_t timestamp, float value);
-    FdsEvent fds_event_make_ptr(FdsEventType type, uint64_t timestamp, void *ptr);
-    // Event fuctions End================================================================================================================
-
     // File fuctions Start================================================================================================================
-    bool fds_file_read_bytes(const char *filepath, void **out_buf, size_t *out_size);
+    bool fds_file_read_bytes(const char *filepath, void **out_buf, usize *out_size);
 
     // Створює новий файл (або перезаписує існуючий) і записує туди size байт з buf.
-    bool fds_file_write_bytes(const char *filepath, const void *buf, size_t size);
+    bool fds_file_write_bytes(const char *filepath, const void *buf, usize size);
 
     // Додає size байт з buf у кінець файлу.
-    bool fds_file_append_bytes(const char *filepath, const void *buf, size_t size);
+    bool fds_file_append_bytes(const char *filepath, const void *buf, usize size);
 
-    bool fds_da_write_file(const char *filepath, const void *items, size_t count, size_t item_size);
+    bool fds_da_write_file(const char *filepath, const void *items, usize count, usize item_size);
 
-    bool fds_da_read_file(const char *filepath, void **out_items, size_t *out_count, size_t item_size);
+    bool fds_da_read_file(const char *filepath, void **out_items, usize *out_count, usize item_size);
 
     SV sv_chop_by_delim(SV *sv, char delim);
     SV sv_trim_ext(SV sv);
     SV sv_trim_right_ext(SV sv);
     SV sv_trim_left_ext(SV sv);
 
-    SV sv_chop_right(SV *sv, size_t n);
-    SV sv_chop_left(SV *sv, size_t n);
+    SV sv_chop_right(SV *sv, usize n);
+    SV sv_chop_left(SV *sv, usize n);
 
-    bool fds_read_entire_file(const char *filepath, char **out_data, size_t *out_size);
+    bool fds_read_entire_file(const char *filepath, char **out_data, usize *out_size);
 
-    FdsFile fds_file_open(const char *path, uint32_t flags);
+    FdsFile fds_file_open(const char *path, u32 flags);
     void fds_file_close(FdsFile *file);
 
-    size_t fds_file_read(FdsFile file, void *dst, size_t size);
-    size_t fds_file_write(FdsFile file, const void *src, size_t size);
+    usize fds_file_read(FdsFile file, void *dst, usize size);
+    usize fds_file_write(FdsFile file, const void *src, usize size);
 
-    bool fds_file_seek(FdsFile file, int64_t offset, FdsSeekOrigin origin);
-    int64_t fds_file_tell(FdsFile file);
-    int64_t fds_file_size(FdsFile file);
+    bool fds_file_seek(FdsFile file, s64 offset, FdsSeekOrigin origin);
+    s64 fds_file_tell(FdsFile file);
+    s64 fds_file_size(FdsFile file);
     void fds_file_flush(FdsFile file);
 
-    char *fds_file_read_str(FdsFile file, void *(*allocator)(size_t));
+    char *fds_file_read_str(FdsFile file, void *(*allocator)(usize));
     bool fds_file_write_str(FdsFile file, const char *str);
 
-    bool fds_file_skip(FdsFile file, int64_t bytes_to_skip);
+    bool fds_file_skip(FdsFile file, s64 bytes_to_skip);
 
-    bool fds_file_check_magic(FdsFile *file, const char expected_magic[4], uint32_t min_version);
-    bool fds_file_write_magic(FdsFile *file, const char magic[4], uint32_t version);
+    bool fds_file_check_magic(FdsFile *file, const char expected_magic[4], u32 min_version);
+    bool fds_file_write_magic(FdsFile *file, const char magic[4], u32 version);
 
-    FdsMappedFile fds_file_map(const char *path, uint32_t flags);
+    FdsMappedFile fds_file_map(const char *path, u32 flags);
     void fds_file_unmap(FdsMappedFile *mapped);
     void fds_file_flush_mapped(FdsMappedFile *mapped);
-    FILE *fds_fmemopen_win32(void *buf, size_t size, const char *mode);
+    FILE *fds_fmemopen_win32(void *buf, usize size, const char *mode);
     FdsFile fds_file_from_mapped(FdsMappedFile *mapped);
     SV fds_file_mapped_as_sv(FdsMappedFile *mapped);
     // File fuctions End================================================================================================================
@@ -1000,13 +959,13 @@ extern "C"
     void sb_append(SB *sb, const char *str);
 
     // Append a string of a specified length
-    void sb_append_n(SB *sb, const char *str, size_t len);
+    void sb_append_n(SB *sb, const char *str, usize len);
 
     // Allocate the specified amount of memory for sb if less than already allocated will cause an error
-    void sb_reserve(SB *sb, size_t capacity);
+    void sb_reserve(SB *sb, usize capacity);
 
     // Allocate additional memory
-    void sb_reserve_extra(SB *sb, size_t extra);
+    void sb_reserve_extra(SB *sb, usize extra);
 
     // Returns a pointer to an ordinary string with SB
     char *sb_to_cstr(SB *sb);
@@ -1025,42 +984,43 @@ extern "C"
 
     // Time utils fuctions Start ================================================================================================================
 
-    double fds_time_now(void);
-    void fds_sleep_ms(int milliseconds);
+    f64 fds_time_now(void);
+    void fds_sleep_ms(s32 milliseconds);
 
     // Time utils fuctions End ================================================================================================================
 
     // String view fuctions Start ================================================================================================================
 
-    void sv_remove_prefix(SV *sv, size_t count);
+    void sv_remove_prefix(SV *sv, usize count);
     char *sv_to_cstr(SV sv);
-    char sv_at(SV sv, size_t index);
+    char *sv_to_cstr_arena(SV sv, FixedArena *arena);
+    char sv_at(SV sv, usize index);
     SV sv_new(void);
     SV sv_from_cstr(const char *str);
     SV sv_from_sb(const SB *sb);
-    SV sv_from_parts(const char *str, size_t len);
-    int sv_eq(SV sv1, SV sv2);
-    int sv_eq_cstr(SV sv1, const char *str);
+    SV sv_from_parts(const char *str, usize len);
+    s32 sv_eq(SV sv1, SV sv2);
+    s32 sv_eq_cstr(SV sv1, const char *str);
     void sv_trim_left(SV *sv);
     void sv_trim_right(SV *sv);
     void sv_trim(SV *sv);
-    void sv_slice(SV *sv, size_t begin, size_t end);
-    void sv_remove_suffix(SV *sv, size_t count);
-    int sv_ends_with(SV sv, SV suffix);
-    int sv_starts_with(SV sv, SV prefix);
-    int sv_starts_with_char(SV sv, char c);
-    int sv_ends_with_char(SV sv, char c);
+    void sv_slice(SV *sv, usize begin, usize end);
+    void sv_remove_suffix(SV *sv, usize count);
+    s32 sv_ends_with(SV sv, SV suffix);
+    s32 sv_starts_with(SV sv, SV prefix);
+    s32 sv_starts_with_char(SV sv, char c);
+    s32 sv_ends_with_char(SV sv, char c);
     SV sv_split_left(SV *sv, char c);
     SV sv_split_right(SV *sv, char c);
-    size_t sv_find_char(SV sv, char c);
-    size_t sv_rfind_char(SV sv, char c);
-    int sv_consume_char(SV *sv, char c);
-    int sv_consume(SV *sv, SV prefix);
-    int sv_next_line(SV *text, SV *out_line);
+    usize sv_find_char(SV sv, char c);
+    usize sv_rfind_char(SV sv, char c);
+    s32 sv_consume_char(SV *sv, char c);
+    s32 sv_consume(SV *sv, SV prefix);
+    s32 sv_next_line(SV *text, SV *out_line);
 
     static bool is_integer(SV sv);
-    static int sv_to_int(SV sv);
-    static float sv_to_float(SV sv);
+    static s32 sv_to_int(SV sv);
+    static f32 sv_to_float(SV sv);
 
     // String view fuctions End ================================================================================================================
 
@@ -1075,46 +1035,47 @@ extern "C"
     // Fixed arena fuctions Start ================================================================================================================
 
     char *fixed_arena_strdup(FixedArena *arena, const char *str);
-    char *fixed_arena_strndup(FixedArena *arena, const char *str, size_t len);
-    void *fixed_arena_memdup(FixedArena *arena, const void *src, size_t size);
-    void *fixed_arena_alloc_array(FixedArena *arena, size_t count, size_t element_size);
-    void *fixed_arena_alloc_zero(FixedArena *arena, size_t size);
-    void *fixed_arena_alloc(FixedArena *arena, size_t size);
-    void *fixed_arena_alloc_align(FixedArena *arena, size_t size, size_t alignment);
+    char *fixed_arena_strndup(FixedArena *arena, const char *str, usize len);
+    void *fixed_arena_memdup(FixedArena *arena, const void *src, usize size);
+    void *fixed_arena_alloc_array(FixedArena *arena, usize count, usize element_size);
+    void *fixed_arena_alloc_zero(FixedArena *arena, usize size);
+    void *fixed_arena_alloc(FixedArena *arena, usize size);
+    void *fixed_arena_alloc_align(FixedArena *arena, usize size, usize alignment);
     void fixed_arena_restore(FixedArena *arena, FixedArenaMark mark);
-    int fixed_arena_contains(const FixedArena *arena, const void *ptr);
-    int fixed_arena_is_empty(const FixedArena *arena);
+    s32 fixed_arena_contains(const FixedArena *arena, const void *ptr);
+    s32 fixed_arena_is_empty(const FixedArena *arena);
     FixedArenaMark fixed_arena_mark(const FixedArena *arena);
-    size_t fixed_arena_available(const FixedArena *arena);
-    size_t fixed_arena_used(const FixedArena *arena);
+    usize fixed_arena_available(const FixedArena *arena);
+    usize fixed_arena_used(const FixedArena *arena);
     void fixed_arena_reset(FixedArena *arena);
-    FixedArena fixed_arena_create(size_t capacity);
+    FixedArena fixed_arena_create(usize capacity);
+    FixedArena fixed_arena_create_zero(usize capacity);
     void fixed_arena_free(FixedArena *arena);
 
     // Fixed arena fuctions End ================================================================================================================
 
     // Files and folders fuctions Start ================================================================================================================
-    size_t fds_get_file_size(const char *filepath);
+    usize fds_get_file_size(const char *filepath);
 
-    int fds_file_read_to_arena(const char *filepath, FixedArena *arena, SV *out_sv);
-    int fds_file_read_to_sb(const char *filepath, SB *out_sb);
-    int fds_file_write_sv(const char *filepath, SV content);
-    int fds_file_append_sv(const char *filepath, SV content);
-    int fds_file_append_sb(const char *filepath, const SB *sb);
-    int fds_file_write_sb(const char *filepath, const SB *sb);
-    int fds_path_extension(SV filepath, SV *out_ext);
-    int fds_rename(const char *oldpath, const char *newpath);
+    s32 fds_file_read_to_arena(const char *filepath, FixedArena *arena, SV *out_sv);
+    s32 fds_file_read_to_sb(const char *filepath, SB *out_sb);
+    s32 fds_file_write_sv(const char *filepath, SV content);
+    s32 fds_file_append_sv(const char *filepath, SV content);
+    s32 fds_file_append_sb(const char *filepath, const SB *sb);
+    s32 fds_file_write_sb(const char *filepath, const SB *sb);
+    s32 fds_path_extension(SV filepath, SV *out_ext);
+    s32 fds_rename(const char *oldpath, const char *newpath);
 
     time_t fds_get_file_mtime(const char *path);
 
-    int fds_dir_create(const char *dirpath);
+    s32 fds_dir_create(const char *dirpath);
 
-    int fds_file_exists(const char *filepath);
-    int fds_dir_exists(const char *dirpath);
+    s32 fds_file_exists(const char *filepath);
+    s32 fds_dir_exists(const char *dirpath);
 
-    int fds_dir_iter_open(const char *dirpath, FdsDirIter *iter);
+    s32 fds_dir_iter_open(const char *dirpath, FdsDirIter *iter);
 
-    int fds_dir_iter_next(FdsDirIter *iter, SV *out_name, int *out_is_dir);
+    s32 fds_dir_iter_next(FdsDirIter *iter, SV *out_name, s32 *out_is_dir);
 
     void fds_dir_iter_close(FdsDirIter *iter);
 
@@ -1123,9 +1084,9 @@ extern "C"
     // INI fuctions Start ================================================================================================================
 
     char *ini_get_temp_cstr(const IniConfig *config, const char *section, const char *key, const char *default_val);
-    int ini_get_bool(const IniConfig *config, const char *section, const char *key, int default_val);
-    float ini_get_float(const IniConfig *config, const char *section, const char *key, float default_val);
-    int ini_get_int(const IniConfig *config, const char *section, const char *key, int default_val);
+    s32 ini_get_bool(const IniConfig *config, const char *section, const char *key, s32 default_val);
+    f32 ini_get_float(const IniConfig *config, const char *section, const char *key, f32 default_val);
+    s32 ini_get_int(const IniConfig *config, const char *section, const char *key, s32 default_val);
     SV ini_get_sv(const IniConfig *config, const char *section, const char *key, const char *default_val);
     SV ini_get(const IniConfig *config, const char *section, const char *key);
 
@@ -1141,19 +1102,19 @@ extern "C"
 
     // Procs fuctions Start ================================================================================================================
 
-    int fds_cmd_run_Simp(const char *cmd_utf8, char **out_output);
+    s32 fds_cmd_run_Simp(const char *cmd_utf8, char **out_output);
     fds_cmd_result fds_cmd_run_ext(const char *cmd_utf8);
     void fds_cmd_result_free(fds_cmd_result *res);
-    static void fds_append_pipe_data(char **buffer, size_t *len, size_t *cap, const char *chunk, size_t chunk_size);
+    static void fds_append_pipe_data(char **buffer, usize *len, usize *cap, const char *chunk, usize chunk_size);
     char *fds_cmd_render(const StringArray *cmd);
     fds_cmd_result fds_cmd_run_sa(const StringArray *cmd);
     bool fds_cmd_run_detached(const char *cmd_utf8);
-    int fds_needs_rebuild(const char *output_path, const char *input_path);
-    int fds_needs_rebuild_many(const char *output_path, const char *const *inputs, size_t input_count);
-    int fds_mkdir_if_not_exists(const char *dirpath);
-    void fds_go_rebuild_urself(int argc, char **argv, const char *source_path);
+    s32 fds_needs_rebuild(const char *output_path, const char *input_path);
+    s32 fds_needs_rebuild_many(const char *output_path, const char *const *inputs, usize input_count);
+    s32 fds_mkdir_if_not_exists(const char *dirpath);
+    void fds_go_rebuild_urself(s32 argc, char **argv, const char *source_path);
 
-    static inline const char *fds_shift_args(int *argc, char ***argv)
+    static inline const char *fds_shift_args(s32 *argc, char ***argv)
     {
         if (!argc || !argv || *argc <= 0 || !*argv)
             return NULL;
@@ -1210,46 +1171,12 @@ extern "C"
 })
 #endif
 
-    /*
-    // static inline void _fds_cleanup_ptr(void *p) {
-    //     void **ptr = (void **)p;
-    //     if (ptr && *ptr) {
-    //         fds_free(*ptr);
-    //         *ptr = NULL;
-    //     }
-    // }
-
-
-
-    // static inline void _fds_cleanup_sb(SB *sb) {
-    //     if (sb) {
-    //         sb_free(sb);
-    //     }
-    // }
-
-
-    // #define _fds_cleanup_fn_for(T) _Generic((T)zero, \
-    //     SB:            _fds_cleanup_sb,             \
-    //     default:       _fds_cleanup_ptr             \
-    // )
-
-    // #if defined(__GNUC__) || defined(__clang__)
-    // #define fds_auto(T) __attribute__((cleanup(_fds_cleanup_fn_for(T))))
-
-    // #define fds_steal(ptr) ({         \
-    //     __typeof__(ptr) _tmp = (ptr); \
-    //     (ptr) = NULL;                 \
-    //     _tmp;                         \
-    // })
-    // #endif
-    */
-
     void temp_arena_destroy(void);
-    static inline void temp_arena_restore_mark(FixedArenaMark *mark);
+    void temp_arena_restore_mark(FixedArenaMark *mark);
     char *temp_arena_sprintf(FixedArena *arena, const char *fmt, ...);
     void temp_arena_reset(void);
     FixedArena *temp_arena_get(void);
-    static inline void _temp_arena_thread_cleanup(int *dummy);
+    void _temp_arena_thread_cleanup(s32 *dummy);
 
 // Start of implementation!!!
 #ifdef FDS_IMPL
@@ -1276,15 +1203,15 @@ extern "C"
 #endif
 
 #ifdef _WIN32
-    static double fds_g_timer_frequency = 0.0;
+    static f64 fds_g_timer_frequency = 0.0;
 #endif
 
     static const char EMPTY_STR[] = "";
 
     FDS_THREAD_LOCAL FixedArena temp_arena_instance = zero;
-    FDS_THREAD_LOCAL int temp_arena_initialized = 0;
+    FDS_THREAD_LOCAL s32 temp_arena_initialized = 0;
 
-    static inline int safe_add(size_t a, size_t b, size_t *res)
+    static inline s32 safe_add(usize a, usize b, usize *res)
     {
         if (a > SIZE_MAX - b)
             return 0;
@@ -1299,7 +1226,7 @@ extern "C"
         return FDS_ISATTY(FDS_FILENO(stream)) != 0;
     }
 
-    void fds_log_impl(fds_log_level level, const char *file, int line, const char *func, const char *fmt, ...)
+    void fds_log_impl(fds_log_level level, const char *file, s32 line, const char *func, const char *fmt, ...)
     {
         const char *prefix = "";
         const char *color = "";
@@ -1328,6 +1255,11 @@ extern "C"
             color = "\x1b[35m";
             stream = stderr;
             break;
+        case FDEBUG:
+            prefix = "[DEBUG]";
+            color = "\x1b[38m";
+            stream = stderr;
+            break;
         }
 
         // Якщо вивід йде у файл, зануляємо всі кольори
@@ -1342,10 +1274,15 @@ extern "C"
             reset = "";
             meta_color = "";
         }
-
+        #ifdef SHORT_LOG
+        (void)line;
+        (void)func;
+        (void)file;
+        fprintf(stream, "%s%s%s %s:%s", color, prefix, reset, meta_color, reset);
+        #else
         // Виводимо префікс і метадані (з кольором або без)
         fprintf(stream, "%s%s%s %s%s:%d:%s:%s ", color, prefix, reset, meta_color, file, line, func, reset);
-
+        #endif
         // Виводимо повідомлення
         va_list args;
         va_start(args, fmt);
@@ -1371,7 +1308,7 @@ extern "C"
         if (!utf8_str)
             return NULL;
 
-        int len = MultiByteToWideChar(CP_UTF8, 0, utf8_str, -1, NULL, 0);
+        s32 len = MultiByteToWideChar(CP_UTF8, 0, utf8_str, -1, NULL, 0);
         if (len <= 0)
             return NULL;
 
@@ -1390,7 +1327,7 @@ extern "C"
         if (!utf16_str)
             return NULL;
 
-        int len = WideCharToMultiByte(CP_UTF8, 0, utf16_str, -1, NULL, 0, NULL, NULL);
+        s32 len = WideCharToMultiByte(CP_UTF8, 0, utf16_str, -1, NULL, 0, NULL, NULL);
         if (len <= 0)
             return NULL;
 
@@ -1405,7 +1342,7 @@ extern "C"
 
     // #pragma GCC diagnostic pop
     // Ініціалізація консолі та нормалізація argv до UTF-8
-    void fds_cli_init(int *argc, char ***argv)
+    void fds_cli_init(s32 *argc, char ***argv)
     {
 #ifdef _WIN32
         // 1. Примусово перемикаємо консоль Windows на UTF-8 (Code Page 65001)
@@ -1413,7 +1350,7 @@ extern "C"
         SetConsoleCP(65001);
 
         // 2. Отримуємо точний юнікодний командний рядок Windows (UTF-16)
-        int wargc = 0;
+        s32 wargc = 0;
         wchar_t **wargv = CommandLineToArgvW(GetCommandLineW(), &wargc);
         if (!wargv)
             return;
@@ -1422,10 +1359,10 @@ extern "C"
         // Використовуємо кастомну арену або malloc для виділення масиву
         char **utf8_argv = (char **)FDS_MALLOC(sizeof(char *) * (wargc + 1));
 
-        for (int i = 0; i < wargc; i++)
+        for (s32 i = 0; i < wargc; i++)
         {
             // Розраховуємо необхідний розмір буфера UTF-8
-            int size_needed = WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, NULL, 0, NULL, NULL);
+            s32 size_needed = WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, NULL, 0, NULL, NULL);
 
             char *utf8_str = (char *)FDS_MALLOC(size_needed);
             WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, utf8_str, size_needed, NULL, NULL);
@@ -1445,9 +1382,9 @@ extern "C"
         (void)argv;
 #endif
     }
-    size_t utf8_strlen(const char *s)
+    usize utf8_strlen(const char *s)
     {
-        size_t count = 0;
+        usize count = 0;
         while (*s)
         {
             // Skip continuation bytes (0x80 to 0xBF)
@@ -1463,7 +1400,7 @@ extern "C"
 
     // Procs functions Start ================================================================================================================
 
-    static void fds_append_pipe_data(char **buffer, size_t *len, size_t *cap, const char *chunk, size_t chunk_size)
+    static void fds_append_pipe_data(char **buffer, usize *len, usize *cap, const char *chunk, usize chunk_size)
     {
         if (*len + chunk_size + 1 > *cap)
         {
@@ -1504,7 +1441,7 @@ extern "C"
         res.stdout_data = (char *)FDS_CALLOC(1, 1);
         res.stderr_data = (char *)FDS_CALLOC(1, 1);
 
-        size_t out_cap = 1, err_cap = 1;
+        usize out_cap = 1, err_cap = 1;
 
 #ifdef _WIN32
         SECURITY_ATTRIBUTES sa = zero;
@@ -1537,8 +1474,7 @@ extern "C"
 
         // Перетворюємо команду в UTF-16. (Буфер має бути змінним, CreateProcessW може його модифікувати)
         wchar_t *wcmd = fds_internal_utf8_to_utf16(cmd_utf8);
-
-        if (!CreateProcessW(NULL, wcmd, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi))
+        if (!wcmd)
         {
             CloseHandle(out_rd);
             CloseHandle(out_wr);
@@ -1546,6 +1482,17 @@ extern "C"
             CloseHandle(err_wr);
             return res;
         }
+
+        if (!CreateProcessW(NULL, wcmd, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi))
+        {
+            FDS_FREE(wcmd);
+            CloseHandle(out_rd);
+            CloseHandle(out_wr);
+            CloseHandle(err_rd);
+            CloseHandle(err_wr);
+            return res;
+        }
+        FDS_FREE(wcmd);
 
         // Батьківський процес повинен закрити свої копії записуючих кінців
         CloseHandle(out_wr);
@@ -1615,7 +1562,7 @@ extern "C"
 
 #else
         // POSIX реалізація
-        int out_pipe[2], err_pipe[2];
+        s32 out_pipe[2], err_pipe[2];
         if (pipe(out_pipe) == -1 || pipe(err_pipe) == -1)
             return res;
 
@@ -1656,7 +1603,7 @@ extern "C"
 
             char chunk[4096];
 
-            for (int i = 0; i < 2; i++)
+            for (s32 i = 0; i < 2; i++)
             {
                 if (pfd[i].fd != -1 && (pfd[i].revents & POLLIN))
                 {
@@ -1682,7 +1629,7 @@ extern "C"
             }
         }
 
-        int status;
+        s32 status;
         waitpid(pid, &status, 0);
         if (WIFEXITED(status))
         {
@@ -1697,7 +1644,7 @@ extern "C"
         return res;
     }
 
-    int fds_cmd_run_Simp(const char *cmd_utf8, char **out_output)
+    s32 fds_cmd_run_Simp(const char *cmd_utf8, char **out_output)
     {
         FILE *pipe = NULL;
 
@@ -1716,6 +1663,9 @@ extern "C"
 
         if (!pipe)
         {
+#ifdef _WIN32
+            FDS_FREE(wcmd);
+#endif
             if (out_output)
                 *out_output = NULL;
             return -1;
@@ -1724,8 +1674,8 @@ extern "C"
         // Якщо користувач хоче отримати вивід
         if (out_output)
         {
-            size_t capacity = 1024;
-            size_t size = 0;
+            usize capacity = 1024;
+            usize size = 0;
             char *buffer = (char *)FDS_MALLOC(capacity);
 
             if (buffer)
@@ -1736,7 +1686,7 @@ extern "C"
                 // Зчитуємо потік шматками
                 while (fgets(chunk, sizeof(chunk), pipe) != NULL)
                 {
-                    size_t chunk_len = strlen(chunk);
+                    usize chunk_len = strlen(chunk);
 
                     // Розширюємо буфер, якщо не вистачає місця
                     if (size + chunk_len + 1 > capacity)
@@ -1771,216 +1721,22 @@ extern "C"
         return _pclose(pipe);
 #else
         // pclose на POSIX повертає статус, який треба розпакувати через WEXITSTATUS
-        int status = pclose(pipe);
+        s32 status = pclose(pipe);
         return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 #endif
     }
 
     // Procs functions End ================================================================================================================
 
-    // Event functions Start ================================================================================================================
-    FdsEventQueue fds_event_queue_init(FdsEvent *buffer, size_t capacity)
-    {
-        FDS_ASSERT(buffer != NULL, "Event buffer pointer cannot be NULL");
-        FDS_ASSERT(capacity > 0, "Queue capacity must be greater than 0");
-
-        FdsEventQueue q zeroe;
-        q.buffer = buffer;
-        q.capacity = capacity;
-        q.head = 0;
-        q.tail = 0;
-        q.count = 0;
-        return q;
-    }
-
-    void fds_event_clear(FdsEventQueue *q)
-    {
-        FDS_ASSERT(q != NULL, "Queue pointer is NULL");
-        q->head = 0;
-        q->tail = 0;
-        q->count = 0;
-    }
-
-    bool fds_event_push(FdsEventQueue *q, FdsEvent event)
-    {
-        FDS_ASSERT(q != NULL, "Queue pointer is NULL");
-        FDS_ASSERT(q->buffer != NULL, "Queue buffer is NULL");
-        FDS_ASSERT(q->capacity > 0, "Queue capacity is 0");
-
-        if (q->count >= q->capacity)
-        {
-            return false;
-        }
-
-        q->buffer[q->head] = event;
-        q->head = (q->head + 1) % q->capacity;
-        q->count++;
-
-        return true;
-    }
-
-    bool fds_event_poll(FdsEventQueue *q, FdsEvent *out_event)
-    {
-        FDS_ASSERT(q != NULL, "Queue pointer is NULL");
-        FDS_ASSERT(q->buffer != NULL, "Queue buffer is NULL");
-        FDS_ASSERT(out_event != NULL, "Output event pointer is NULL");
-
-        if (q->count == 0)
-        {
-            return false;
-        }
-
-        *out_event = q->buffer[q->tail];
-        q->tail = (q->tail + 1) % q->capacity;
-        q->count--;
-
-        return true;
-    }
-
-    size_t fds_event_poll_many(FdsEventQueue *q, FdsEvent *events, size_t capacity)
-    {
-        FDS_ASSERT(q != NULL, "Queue pointer is NULL");
-        FDS_ASSERT(q->buffer != NULL, "Queue buffer is NULL");
-        if (capacity == 0)
-            return 0;
-        FDS_ASSERT(events != NULL, "Output events buffer is NULL");
-
-        size_t to_read = (capacity < q->count) ? capacity : q->count;
-        for (size_t i = 0; i < to_read; ++i)
-        {
-            events[i] = q->buffer[q->tail];
-            q->tail = (q->tail + 1) % q->capacity;
-        }
-        q->count -= to_read;
-
-        return to_read;
-    }
-
-    bool fds_event_peek(const FdsEventQueue *q, FdsEvent *out_event)
-    {
-        FDS_ASSERT(q != NULL, "Queue pointer is NULL");
-        FDS_ASSERT(q->buffer != NULL, "Queue buffer is NULL");
-        FDS_ASSERT(out_event != NULL, "Output event pointer is NULL");
-
-        if (q->count == 0)
-        {
-            return false;
-        }
-
-        *out_event = q->buffer[q->tail];
-        return true;
-    }
-
-    bool fds_event_discard(FdsEventQueue *q)
-    {
-        FDS_ASSERT(q != NULL, "Queue pointer is NULL");
-        FDS_ASSERT(q->buffer != NULL, "Queue buffer is NULL");
-
-        if (q->count == 0)
-        {
-            return false;
-        }
-
-        q->tail = (q->tail + 1) % q->capacity;
-        q->count--;
-        return true;
-    }
-
-    size_t fds_event_discard_many(FdsEventQueue *q, size_t count)
-    {
-        FDS_ASSERT(q != NULL, "Queue pointer is NULL");
-        FDS_ASSERT(q->buffer != NULL, "Queue buffer is NULL");
-
-        size_t to_discard = (count < q->count) ? count : q->count;
-        if (to_discard > 0)
-        {
-            q->tail = (q->tail + to_discard) % q->capacity;
-            q->count -= to_discard;
-        }
-
-        return to_discard;
-    }
-
-    bool fds_event_is_empty(const FdsEventQueue *q)
-    {
-        FDS_ASSERT(q != NULL, "Queue pointer is NULL");
-        return q->count == 0;
-    }
-
-    bool fds_event_is_full(const FdsEventQueue *q)
-    {
-        FDS_ASSERT(q != NULL, "Queue pointer is NULL");
-        return q->count >= q->capacity;
-    }
-
-    size_t fds_event_count(const FdsEventQueue *q)
-    {
-        FDS_ASSERT(q != NULL, "Queue pointer is NULL");
-        return q->count;
-    }
-
-    size_t fds_event_capacity(const FdsEventQueue *q)
-    {
-        FDS_ASSERT(q != NULL, "Queue pointer is NULL");
-        return q->capacity;
-    }
-
-    size_t fds_event_remaining(const FdsEventQueue *q)
-    {
-        FDS_ASSERT(q != NULL, "Queue pointer is NULL");
-        return q->capacity - q->count;
-    }
-
-    // --- Factory Functions ---
-
-    FdsEvent fds_event_make(FdsEventType type, uint64_t timestamp)
-    {
-        FdsEvent e  zeroe;
-        e.type = type; e.timestamp = timestamp;
-        return e;
-    }
-
-    FdsEvent fds_event_make_i32(FdsEventType type, uint64_t timestamp, int32_t value)
-    {
-        FdsEvent e  zeroe;
-        e.type = type; e.timestamp = timestamp;
-        e.as.i32[0] = value;
-        return e;
-    }
-
-    FdsEvent fds_event_make_u32(FdsEventType type, uint64_t timestamp, uint32_t value)
-    {
-        FdsEvent e  zeroe;
-        e.type = type; e.timestamp = timestamp;
-        e.as.u32[0] = value;
-        return e;
-    }
-
-    FdsEvent fds_event_make_f32(FdsEventType type, uint64_t timestamp, float value)
-    {
-        FdsEvent e  zeroe;
-        e.type = type; e.timestamp = timestamp;
-        e.as.f32[0] = value;
-        return e;
-    }
-
-    FdsEvent fds_event_make_ptr(FdsEventType type, uint64_t timestamp, void *ptr)
-    {
-        FdsEvent e zeroe;
-        e.type = type;
-        e.timestamp = timestamp;
-        e.as.ptr = ptr;
-        return e;
-    }
-    // Event functions End ================================================================================================================
+    
     // Bytes builder adn view functions Start ================================================================================================================
 
-    FdsBytesBuilder fds_bb_create(size_t initial_capacity)
+    FdsBytesBuilder fds_bb_create(usize initial_capacity)
     {
         FdsBytesBuilder bb zeroe;
         if (initial_capacity > 0)
         {
-            bb.data = (uint8_t *)FDS_MALLOC(initial_capacity);
+            bb.data = (u8 *)FDS_MALLOC(initial_capacity);
             FDS_ASSERT(bb.data != NULL, "BytesBuilder: memory allocation failed");
             bb.capacity = initial_capacity;
         }
@@ -1999,7 +1755,7 @@ extern "C"
         bb->capacity = 0;
     }
 
-    void fds_bb_reserve(FdsBytesBuilder *bb, size_t additional_size)
+    void fds_bb_reserve(FdsBytesBuilder *bb, usize additional_size)
     {
         FDS_ASSERT(bb != NULL, "BytesBuilder pointer is NULL");
 
@@ -2008,14 +1764,14 @@ extern "C"
             return; // Already have enough space
         }
 
-        // Standard growth strategy: double the capacity or match exact needs
-        size_t new_capacity = bb->capacity == 0 ? 16 : bb->capacity;
+        // Standard growth strategy: f64 the capacity or match exact needs
+        usize new_capacity = bb->capacity == 0 ? 16 : bb->capacity;
         while (new_capacity < bb->size + additional_size)
         {
             new_capacity *= 2;
         }
 
-        uint8_t *new_data = (uint8_t *)FDS_REALLOC(bb->data, new_capacity);
+        u8 *new_data = (u8 *)FDS_REALLOC(bb->data, new_capacity);
         FDS_ASSERT(new_data != NULL, "BytesBuilder: memory reallocation failed");
 
         bb->data = new_data;
@@ -2057,7 +1813,7 @@ extern "C"
 
     // --- Appending ---
 
-    void fds_bb_append(FdsBytesBuilder *bb, const void *data, size_t size)
+    void fds_bb_append(FdsBytesBuilder *bb, const void *data, usize size)
     {
         FDS_ASSERT(bb != NULL, "BytesBuilder pointer is NULL");
         if (size == 0 || data == NULL)
@@ -2068,113 +1824,113 @@ extern "C"
         bb->size += size;
     }
 
-    void fds_bb_append_byte(FdsBytesBuilder *bb, uint8_t byte)
+    void fds_bb_append_byte(FdsBytesBuilder *bb, u8 byte)
     {
         FDS_ASSERT(bb != NULL, "BytesBuilder pointer is NULL");
         fds_bb_reserve(bb, 1);
         bb->data[bb->size++] = byte;
     }
 
-    void fds_bb_append_u16_le(FdsBytesBuilder *bb, uint16_t val)
+    void fds_bb_append_u16_le(FdsBytesBuilder *bb, u16 val)
     {
         fds_bb_reserve(bb, 2);
-        bb->data[bb->size++] = (uint8_t)(val & 0xFF);
-        bb->data[bb->size++] = (uint8_t)((val >> 8) & 0xFF);
+        bb->data[bb->size++] = (u8)(val & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 8) & 0xFF);
     }
 
-    void fds_bb_append_u16_be(FdsBytesBuilder *bb, uint16_t val)
+    void fds_bb_append_u16_be(FdsBytesBuilder *bb, u16 val)
     {
         fds_bb_reserve(bb, 2);
-        bb->data[bb->size++] = (uint8_t)((val >> 8) & 0xFF);
-        bb->data[bb->size++] = (uint8_t)(val & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 8) & 0xFF);
+        bb->data[bb->size++] = (u8)(val & 0xFF);
     }
 
-    void fds_bb_append_u32_le(FdsBytesBuilder *bb, uint32_t val)
+    void fds_bb_append_u32_le(FdsBytesBuilder *bb, u32 val)
     {
         fds_bb_reserve(bb, 4);
-        bb->data[bb->size++] = (uint8_t)(val & 0xFF);
-        bb->data[bb->size++] = (uint8_t)((val >> 8) & 0xFF);
-        bb->data[bb->size++] = (uint8_t)((val >> 16) & 0xFF);
-        bb->data[bb->size++] = (uint8_t)((val >> 24) & 0xFF);
+        bb->data[bb->size++] = (u8)(val & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 8) & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 16) & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 24) & 0xFF);
     }
 
-    void fds_bb_append_u32_be(FdsBytesBuilder *bb, uint32_t val)
+    void fds_bb_append_u32_be(FdsBytesBuilder *bb, u32 val)
     {
         fds_bb_reserve(bb, 4);
-        bb->data[bb->size++] = (uint8_t)((val >> 24) & 0xFF);
-        bb->data[bb->size++] = (uint8_t)((val >> 16) & 0xFF);
-        bb->data[bb->size++] = (uint8_t)((val >> 8) & 0xFF);
-        bb->data[bb->size++] = (uint8_t)(val & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 24) & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 16) & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 8) & 0xFF);
+        bb->data[bb->size++] = (u8)(val & 0xFF);
     }
-    void fds_bb_append_u64_le(FdsBytesBuilder *bb, uint64_t val)
+    void fds_bb_append_u64_le(FdsBytesBuilder *bb, u64 val)
     {
         fds_bb_reserve(bb, 8);
-        bb->data[bb->size++] = (uint8_t)(val & 0xFF);
-        bb->data[bb->size++] = (uint8_t)((val >> 8) & 0xFF);
-        bb->data[bb->size++] = (uint8_t)((val >> 16) & 0xFF);
-        bb->data[bb->size++] = (uint8_t)((val >> 24) & 0xFF);
-        bb->data[bb->size++] = (uint8_t)((val >> 32) & 0xFF);
-        bb->data[bb->size++] = (uint8_t)((val >> 40) & 0xFF);
-        bb->data[bb->size++] = (uint8_t)((val >> 48) & 0xFF);
-        bb->data[bb->size++] = (uint8_t)((val >> 56) & 0xFF);
+        bb->data[bb->size++] = (u8)(val & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 8) & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 16) & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 24) & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 32) & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 40) & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 48) & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 56) & 0xFF);
     }
 
-    void fds_bb_append_u64_be(FdsBytesBuilder *bb, uint64_t val)
+    void fds_bb_append_u64_be(FdsBytesBuilder *bb, u64 val)
     {
         fds_bb_reserve(bb, 8);
-        bb->data[bb->size++] = (uint8_t)((val >> 56) & 0xFF);
-        bb->data[bb->size++] = (uint8_t)((val >> 48) & 0xFF);
-        bb->data[bb->size++] = (uint8_t)((val >> 40) & 0xFF);
-        bb->data[bb->size++] = (uint8_t)((val >> 32) & 0xFF);
-        bb->data[bb->size++] = (uint8_t)((val >> 24) & 0xFF);
-        bb->data[bb->size++] = (uint8_t)((val >> 16) & 0xFF);
-        bb->data[bb->size++] = (uint8_t)((val >> 8) & 0xFF);
-        bb->data[bb->size++] = (uint8_t)(val & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 56) & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 48) & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 40) & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 32) & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 24) & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 16) & 0xFF);
+        bb->data[bb->size++] = (u8)((val >> 8) & 0xFF);
+        bb->data[bb->size++] = (u8)(val & 0xFF);
     }
 
-    void fds_bb_append_f32_le(FdsBytesBuilder *bb, float val)
+    void fds_bb_append_f32_le(FdsBytesBuilder *bb, f32 val)
     {
-        uint32_t temp;
-        memcpy(&temp, &val, sizeof(float));
+        u32 temp;
+        memcpy(&temp, &val, sizeof(f32));
         fds_bb_append_u32_le(bb, temp);
     }
 
-    void fds_bb_append_f32_be(FdsBytesBuilder *bb, float val)
+    void fds_bb_append_f32_be(FdsBytesBuilder *bb, f32 val)
     {
-        uint32_t temp;
-        memcpy(&temp, &val, sizeof(float));
+        u32 temp;
+        memcpy(&temp, &val, sizeof(f32));
         fds_bb_append_u32_be(bb, temp);
     }
 
-    void fds_bb_append_f64_le(FdsBytesBuilder *bb, double val)
+    void fds_bb_append_f64_le(FdsBytesBuilder *bb, f64 val)
     {
-        uint64_t temp;
-        memcpy(&temp, &val, sizeof(double));
+        u64 temp;
+        memcpy(&temp, &val, sizeof(f64));
         fds_bb_append_u64_le(bb, temp);
     }
 
-    void fds_bb_append_f64_be(FdsBytesBuilder *bb, double val)
+    void fds_bb_append_f64_be(FdsBytesBuilder *bb, f64 val)
     {
-        uint64_t temp;
-        memcpy(&temp, &val, sizeof(double));
+        u64 temp;
+        memcpy(&temp, &val, sizeof(f64));
         fds_bb_append_u64_be(bb, temp);
     }
 
-    size_t fds_bb_get_pos(const FdsBytesBuilder *bb)
+    usize fds_bb_get_pos(const FdsBytesBuilder *bb)
     {
         FDS_ASSERT(bb != NULL, "BytesBuilder is NULL");
         return bb->size;
     }
 
-    void fds_bb_patch_u32_le(FdsBytesBuilder *bb, size_t offset, uint32_t val)
+    void fds_bb_patch_u32_le(FdsBytesBuilder *bb, usize offset, u32 val)
     {
         FDS_ASSERT(bb != NULL, "BytesBuilder is NULL");
         FDS_ASSERT(offset + 4 <= bb->size, "Patch offset out of bounds");
 
-        bb->data[offset] = (uint8_t)(val & 0xFF);
-        bb->data[offset + 1] = (uint8_t)((val >> 8) & 0xFF);
-        bb->data[offset + 2] = (uint8_t)((val >> 16) & 0xFF);
-        bb->data[offset + 3] = (uint8_t)((val >> 24) & 0xFF);
+        bb->data[offset] = (u8)(val & 0xFF);
+        bb->data[offset + 1] = (u8)((val >> 8) & 0xFF);
+        bb->data[offset + 2] = (u8)((val >> 16) & 0xFF);
+        bb->data[offset + 3] = (u8)((val >> 24) & 0xFF);
     }
 
     // --- У fds_bytes_builder.h ---
@@ -2182,7 +1938,7 @@ extern "C"
     {
         if (!str)
             return;
-        size_t len = strlen(str);
+        usize len = strlen(str);
         fds_bb_append(bb, str, len + 1); // +1 для '\0'
     }
 
@@ -2193,9 +1949,9 @@ extern "C"
             fds_bb_append_u16_le(bb, 0);
             return;
         }
-        size_t len = strlen(str);
+        usize len = strlen(str);
         FDS_ASSERT(len <= 0xFFFF, "String too long for u16 prefix");
-        fds_bb_append_u16_le(bb, (uint16_t)len);
+        fds_bb_append_u16_le(bb, (u16)len);
         fds_bb_append(bb, str, len);
     }
 
@@ -2211,15 +1967,15 @@ extern "C"
         if (!file)
             return false;
 
-        size_t written = fwrite(bb->data, 1, bb->size, file);
+        usize written = fwrite(bb->data, 1, bb->size, file);
         fclose(file);
 
         return written == bb->size;
     }
-    FdsBytesView fds_bv(const void *data, size_t size)
+    FdsBytesView fds_bv(const void *data, usize size)
     {
         FdsBytesView bv = zero;
-        bv.data = (const uint8_t *)data;
+        bv.data = (const u8 *)data;
         bv.size = size;
         return bv;
     }
@@ -2239,21 +1995,21 @@ extern "C"
         return fds_bv(str, strlen(str));
     }
 
-    FdsBytesView fds_bv_subview(FdsBytesView view, size_t offset, size_t length)
+    FdsBytesView fds_bv_subview(FdsBytesView view, usize offset, usize length)
     {
         if (offset >= view.size)
             return fds_bv_empty();
-        size_t available = view.size - offset;
-        size_t actual_len = length < available ? length : available;
+        usize available = view.size - offset;
+        usize actual_len = length < available ? length : available;
         return fds_bv(view.data + offset, actual_len);
     }
 
-    FdsBytesView fds_bv_take(FdsBytesView view, size_t count)
+    FdsBytesView fds_bv_take(FdsBytesView view, usize count)
     {
         return fds_bv_subview(view, 0, count);
     }
 
-    FdsBytesView fds_bv_skip(FdsBytesView view, size_t count)
+    FdsBytesView fds_bv_skip(FdsBytesView view, usize count)
     {
         if (count >= view.size)
             return fds_bv_empty();
@@ -2285,35 +2041,35 @@ extern "C"
         return fds_bv_equals(fds_bv_subview(view, view.size - suffix.size, suffix.size), suffix);
     }
 
-    intptr_t fds_bv_find_byte(FdsBytesView view, uint8_t byte)
+    iptr fds_bv_find_byte(FdsBytesView view, u8 byte)
     {
         if (!view.data || view.size == 0)
             return -1;
         const void *ptr = memchr(view.data, byte, view.size);
         if (!ptr)
             return -1;
-        return (intptr_t)((const uint8_t *)ptr - view.data);
+        return (iptr)((const u8 *)ptr - view.data);
     }
 
-    intptr_t fds_bv_find_subview(FdsBytesView view, FdsBytesView pattern)
+    iptr fds_bv_find_subview(FdsBytesView view, FdsBytesView pattern)
     {
         if (pattern.size == 0 || pattern.size > view.size)
             return -1;
         if (!view.data || !pattern.data)
             return -1;
 
-        size_t max_idx = view.size - pattern.size;
-        for (size_t i = 0; i <= max_idx; ++i)
+        usize max_idx = view.size - pattern.size;
+        for (usize i = 0; i <= max_idx; ++i)
         {
             if (memcmp(view.data + i, pattern.data, pattern.size) == 0)
             {
-                return (intptr_t)i;
+                return (iptr)i;
             }
         }
         return -1;
     }
 
-    bool fds_bv_pop_byte(FdsBytesView *view, uint8_t *out_byte)
+    bool fds_bv_pop_byte(FdsBytesView *view, u8 *out_byte)
     {
         FDS_ASSERT(view != NULL, "BytesView pointer is NULL");
         if (view->size == 0 || !view->data)
@@ -2325,136 +2081,136 @@ extern "C"
         return true;
     }
 
-    FdsBytesView fds_bv_pop_bytes(FdsBytesView *view, size_t count)
+    FdsBytesView fds_bv_pop_bytes(FdsBytesView *view, usize count)
     {
         FDS_ASSERT(view != NULL, "BytesView pointer is NULL");
-        size_t actual_count = count < view->size ? count : view->size;
+        usize actual_count = count < view->size ? count : view->size;
         FdsBytesView result = fds_bv(view->data, actual_count);
         view->data += actual_count;
         view->size -= actual_count;
         return result;
     }
 
-    bool fds_bv_read_u16_le(FdsBytesView *view, uint16_t *out_val)
+    bool fds_bv_read_u16_le(FdsBytesView *view, u16 *out_val)
     {
         if (view->size < 2)
             return false;
         if (out_val)
         {
-            *out_val = (uint16_t)view->data[0] | ((uint16_t)view->data[1] << 8);
+            *out_val = (u16)view->data[0] | ((u16)view->data[1] << 8);
         }
         view->data += 2;
         view->size -= 2;
         return true;
     }
 
-    bool fds_bv_read_u16_be(FdsBytesView *view, uint16_t *out_val)
+    bool fds_bv_read_u16_be(FdsBytesView *view, u16 *out_val)
     {
         if (view->size < 2)
             return false;
         if (out_val)
         {
-            *out_val = ((uint16_t)view->data[0] << 8) | (uint16_t)view->data[1];
+            *out_val = ((u16)view->data[0] << 8) | (u16)view->data[1];
         }
         view->data += 2;
         view->size -= 2;
         return true;
     }
 
-    bool fds_bv_read_u32_le(FdsBytesView *view, uint32_t *out_val)
+    bool fds_bv_read_u32_le(FdsBytesView *view, u32 *out_val)
     {
         if (view->size < 4)
             return false;
         if (out_val)
         {
-            *out_val = (uint32_t)view->data[0] | ((uint32_t)view->data[1] << 8) | ((uint32_t)view->data[2] << 16) | ((uint32_t)view->data[3] << 24);
+            *out_val = (u32)view->data[0] | ((u32)view->data[1] << 8) | ((u32)view->data[2] << 16) | ((u32)view->data[3] << 24);
         }
         view->data += 4;
         view->size -= 4;
         return true;
     }
 
-    bool fds_bv_read_u32_be(FdsBytesView *view, uint32_t *out_val)
+    bool fds_bv_read_u32_be(FdsBytesView *view, u32 *out_val)
     {
         if (view->size < 4)
             return false;
         if (out_val)
         {
-            *out_val = ((uint32_t)view->data[0] << 24) | ((uint32_t)view->data[1] << 16) | ((uint32_t)view->data[2] << 8) | (uint32_t)view->data[3];
+            *out_val = ((u32)view->data[0] << 24) | ((u32)view->data[1] << 16) | ((u32)view->data[2] << 8) | (u32)view->data[3];
         }
         view->data += 4;
         view->size -= 4;
         return true;
     }
 
-    bool fds_bv_read_u64_le(FdsBytesView *view, uint64_t *out_val)
+    bool fds_bv_read_u64_le(FdsBytesView *view, u64 *out_val)
     {
         if (view->size < 8)
             return false;
         if (out_val)
         {
-            *out_val = (uint64_t)view->data[0] | ((uint64_t)view->data[1] << 8) | ((uint64_t)view->data[2] << 16) | ((uint64_t)view->data[3] << 24) | ((uint64_t)view->data[4] << 32) | ((uint64_t)view->data[5] << 40) | ((uint64_t)view->data[6] << 48) | ((uint64_t)view->data[7] << 56);
+            *out_val = (u64)view->data[0] | ((u64)view->data[1] << 8) | ((u64)view->data[2] << 16) | ((u64)view->data[3] << 24) | ((u64)view->data[4] << 32) | ((u64)view->data[5] << 40) | ((u64)view->data[6] << 48) | ((u64)view->data[7] << 56);
         }
         view->data += 8;
         view->size -= 8;
         return true;
     }
 
-    bool fds_bv_read_u64_be(FdsBytesView *view, uint64_t *out_val)
+    bool fds_bv_read_u64_be(FdsBytesView *view, u64 *out_val)
     {
         if (view->size < 8)
             return false;
         if (out_val)
         {
-            *out_val = ((uint64_t)view->data[0] << 56) | ((uint64_t)view->data[1] << 48) | ((uint64_t)view->data[2] << 40) | ((uint64_t)view->data[3] << 32) | ((uint64_t)view->data[4] << 24) | ((uint64_t)view->data[5] << 16) | ((uint64_t)view->data[6] << 8) | (uint64_t)view->data[7];
+            *out_val = ((u64)view->data[0] << 56) | ((u64)view->data[1] << 48) | ((u64)view->data[2] << 40) | ((u64)view->data[3] << 32) | ((u64)view->data[4] << 24) | ((u64)view->data[5] << 16) | ((u64)view->data[6] << 8) | (u64)view->data[7];
         }
         view->data += 8;
         view->size -= 8;
         return true;
     }
 
-    bool fds_bv_read_f32_le(FdsBytesView *view, float *out_val)
+    bool fds_bv_read_f32_le(FdsBytesView *view, f32 *out_val)
     {
-        uint32_t temp;
+        u32 temp;
         if (!fds_bv_read_u32_le(view, &temp))
             return false;
         if (out_val)
-            memcpy(out_val, &temp, sizeof(float));
+            memcpy(out_val, &temp, sizeof(f32));
         return true;
     }
 
-    bool fds_bv_read_f32_be(FdsBytesView *view, float *out_val)
+    bool fds_bv_read_f32_be(FdsBytesView *view, f32 *out_val)
     {
-        uint32_t temp;
+        u32 temp;
         if (!fds_bv_read_u32_be(view, &temp))
             return false;
         if (out_val)
-            memcpy(out_val, &temp, sizeof(float));
+            memcpy(out_val, &temp, sizeof(f32));
         return true;
     }
 
-    bool fds_bv_read_f64_le(FdsBytesView *view, double *out_val)
+    bool fds_bv_read_f64_le(FdsBytesView *view, f64 *out_val)
     {
-        uint64_t temp;
+        u64 temp;
         if (!fds_bv_read_u64_le(view, &temp))
             return false;
         if (out_val)
-            memcpy(out_val, &temp, sizeof(double));
+            memcpy(out_val, &temp, sizeof(f64));
         return true;
     }
 
-    bool fds_bv_read_f64_be(FdsBytesView *view, double *out_val)
+    bool fds_bv_read_f64_be(FdsBytesView *view, f64 *out_val)
     {
-        uint64_t temp;
+        u64 temp;
         if (!fds_bv_read_u64_be(view, &temp))
             return false;
         if (out_val)
-            memcpy(out_val, &temp, sizeof(double));
+            memcpy(out_val, &temp, sizeof(f64));
         return true;
     }
     bool fds_bv_read_string_u16(FdsBytesView *view, FdsBytesView *out_str_view)
     {
-        uint16_t len;
+        u16 len;
         if (!fds_bv_read_u16_le(view, &len))
             return false;
 
@@ -2475,7 +2231,7 @@ extern "C"
     // FIleIO functions Start ================================================================================================================
     SV sv_chop_by_delim(SV *sv, char delim)
     {
-        size_t i = 0;
+        usize i = 0;
         while (i < sv->count && sv->data[i] != delim)
         {
             i += 1;
@@ -2497,7 +2253,7 @@ extern "C"
         return result;
     }
 
-    SV sv_chop_left(SV *sv, size_t n)
+    SV sv_chop_left(SV *sv, usize n)
     {
         if (n > sv->count)
         {
@@ -2512,7 +2268,7 @@ extern "C"
         return result;
     }
 
-    SV sv_chop_right(SV *sv, size_t n)
+    SV sv_chop_right(SV *sv, usize n)
     {
         if (n > sv->count)
         {
@@ -2528,7 +2284,7 @@ extern "C"
 
     SV sv_trim_left_ext(SV sv)
     {
-        size_t i = 0;
+        usize i = 0;
         while (i < sv.count && isspace(sv.data[i]))
         {
             i += 1;
@@ -2539,7 +2295,7 @@ extern "C"
 
     SV sv_trim_right_ext(SV sv)
     {
-        size_t i = 0;
+        usize i = 0;
         while (i < sv.count && isspace(sv.data[sv.count - 1 - i]))
         {
             i += 1;
@@ -2553,14 +2309,14 @@ extern "C"
         return sv_trim_right_ext(sv_trim_left_ext(sv));
     }
 
-    bool fds_da_write_file(const char *filepath, const void *items, size_t count, size_t item_size)
+    bool fds_da_write_file(const char *filepath, const void *items, usize count, usize item_size)
     {
         FILE *f = fopen(filepath, "wb");
         if (!f)
             return false;
 
         // 1. Записуємо кількість елементів (заголовок)
-        if (fwrite(&count, sizeof(size_t), 1, f) != 1)
+        if (fwrite(&count, sizeof(usize), 1, f) != 1)
         {
             fclose(f);
             return false;
@@ -2580,9 +2336,9 @@ extern "C"
         return true;
     }
 
-    bool fds_da_read_file(const char *filepath, void **out_items, size_t *out_count, size_t item_size)
+    bool fds_da_read_file(const char *filepath, void **out_items, usize *out_count, usize item_size)
     {
-        if (!filepath || !out_items || !out_count)
+        if (!filepath || !out_items || !out_count || item_size == 0)
             return false;
 
         FILE *f = fopen(filepath, "rb");
@@ -2590,8 +2346,8 @@ extern "C"
             return false;
 
         // 1. Читаємо кількість елементів
-        size_t count = 0;
-        if (fread(&count, sizeof(size_t), 1, f) != 1)
+        usize count = 0;
+        if (fread(&count, sizeof(usize), 1, f) != 1)
         {
             fclose(f);
             return false;
@@ -2603,6 +2359,12 @@ extern "C"
             *out_count = 0;
             fclose(f);
             return true;
+        }
+
+        if (count > SIZE_MAX / item_size)
+        {
+            fclose(f);
+            return false;
         }
 
         // 2. Виділяємо пам'ять під буфер
@@ -2627,7 +2389,7 @@ extern "C"
         return true;
     }
 
-    bool fds_file_read_bytes(const char *filepath, void **out_buf, size_t *out_size)
+    bool fds_file_read_bytes(const char *filepath, void **out_buf, usize *out_size)
     {
         if (!filepath || !out_buf || !out_size)
             return false;
@@ -2646,14 +2408,22 @@ extern "C"
             return false;
         }
 
-        long size = ftell(f);
+#if defined(_WIN32)
+        long long size = _ftelli64(f);
+#else
+        long long size = ftello(f);
+#endif
         if (size < 0)
         {
             fclose(f);
             return false;
         }
 
-        fseek(f, 0, SEEK_SET);
+        if (fseek(f, 0, SEEK_SET) != 0)
+        {
+            fclose(f);
+            return false;
+        }
 
         // Якщо файл порожній — повертаємо успіх із NULL буфером
         if (size == 0)
@@ -2662,28 +2432,28 @@ extern "C"
             return true;
         }
 
-        void *buffer = FDS_MALLOC((size_t)size);
+        void *buffer = FDS_MALLOC((usize)size);
         if (!buffer)
         {
             fclose(f);
             return false;
         }
 
-        size_t bytes_read = fread(buffer, 1, (size_t)size, f);
+        usize bytes_read = fread(buffer, 1, (usize)size, f);
         fclose(f);
 
-        if (bytes_read != (size_t)size)
+        if (bytes_read != (usize)size)
         {
             FDS_FREE(buffer);
             return false;
         }
 
         *out_buf = buffer;
-        *out_size = (size_t)size;
+        *out_size = (usize)size;
         return true;
     }
 
-    bool fds_file_write_bytes(const char *filepath, const void *buf, size_t size)
+    bool fds_file_write_bytes(const char *filepath, const void *buf, usize size)
     {
         if (!filepath)
             return false;
@@ -2696,7 +2466,7 @@ extern "C"
 
         if (size > 0)
         {
-            size_t bytes_written = fwrite(buf, 1, size, f);
+            usize bytes_written = fwrite(buf, 1, size, f);
             if (bytes_written != size)
             {
                 fclose(f);
@@ -2708,7 +2478,7 @@ extern "C"
         return true;
     }
 
-    bool fds_file_append_bytes(const char *filepath, const void *buf, size_t size)
+    bool fds_file_append_bytes(const char *filepath, const void *buf, usize size)
     {
         if (!filepath)
             return false;
@@ -2721,17 +2491,17 @@ extern "C"
         if (!f)
             return false;
 
-        size_t bytes_written = fwrite(buf, 1, size, f);
+        usize bytes_written = fwrite(buf, 1, size, f);
         fclose(f);
 
         return bytes_written == size;
     }
 
-    bool fds_read_entire_file(const char *filepath, char **out_data, size_t *out_size)
+    bool fds_read_entire_file(const char *filepath, char **out_data, usize *out_size)
     {
         FILE *file = NULL;
         char *buffer = NULL;
-        long size = 0;
+        long long size = 0;
 
         FDS_ASSERT(filepath != NULL, "filepath must not be NULL");
         FDS_ASSERT(out_data != NULL, "out_data must not be NULL");
@@ -2759,17 +2529,21 @@ extern "C"
 
         if (fseek(file, 0, SEEK_END) != 0)
             goto fail;
-        size = ftell(file);
+#if defined(_WIN32)
+        size = _ftelli64(file);
+#else
+        size = ftello(file);
+#endif
         if (size < 0)
             goto fail;
         if (fseek(file, 0, SEEK_SET) != 0)
             goto fail;
 
-        buffer = (char *)FDS_MALLOC((size_t)size + 1);
+        buffer = (char *)FDS_MALLOC((usize)size + 1);
         if (!buffer)
             goto fail;
 
-        if (fread(buffer, 1, (size_t)size, file) != (size_t)size)
+        if (fread(buffer, 1, (usize)size, file) != (usize)size)
         {
             FDS_FREE(buffer);
             goto fail;
@@ -2780,7 +2554,7 @@ extern "C"
 
         *out_data = buffer;
         if (out_size)
-            *out_size = (size_t)size;
+            *out_size = (usize)size;
         return true;
 
     fail:
@@ -2788,7 +2562,7 @@ extern "C"
         return false;
     }
 
-    FdsFile fds_file_open(const char *path, uint32_t flags)
+    FdsFile fds_file_open(const char *path, u32 flags)
     {
         FdsFile file zeroe;
         file.handle = 0;
@@ -2822,7 +2596,7 @@ extern "C"
         FILE *f = fopen(path, mode);
         if (f)
         {
-            file.handle = (uintptr_t)f;
+            file.handle = (uptr)f;
             file.is_valid = true;
         }
 
@@ -2842,26 +2616,26 @@ extern "C"
         file->is_valid = false;
     }
 
-    size_t fds_file_read(FdsFile file, void *dst, size_t size)
+    usize fds_file_read(FdsFile file, void *dst, usize size)
     {
         if (!file.is_valid || !dst || size == 0)
             return 0;
         return fread(dst, 1, size, FDS_FILE_PTR(file));
     }
 
-    size_t fds_file_write(FdsFile file, const void *src, size_t size)
+    usize fds_file_write(FdsFile file, const void *src, usize size)
     {
         if (!file.is_valid || !src || size == 0)
             return 0;
         return fwrite(src, 1, size, FDS_FILE_PTR(file));
     }
 
-    bool fds_file_seek(FdsFile file, int64_t offset, FdsSeekOrigin origin)
+    bool fds_file_seek(FdsFile file, s64 offset, FdsSeekOrigin origin)
     {
         if (!file.is_valid)
             return false;
 
-        int std_origin = SEEK_SET;
+        s32 std_origin = SEEK_SET;
         if (origin == FDS_SEEK_CUR)
             std_origin = SEEK_CUR;
         if (origin == FDS_SEEK_END)
@@ -2874,7 +2648,7 @@ extern "C"
 #endif
     }
 
-    int64_t fds_file_tell(FdsFile file)
+    s64 fds_file_tell(FdsFile file)
     {
         if (!file.is_valid)
             return -1;
@@ -2882,23 +2656,23 @@ extern "C"
 #if defined(_WIN32)
         return _ftelli64(FDS_FILE_PTR(file));
 #else
-        return (int64_t)ftello(FDS_FILE_PTR(file));
+        return (s64)ftello(FDS_FILE_PTR(file));
 #endif
     }
 
-    int64_t fds_file_size(FdsFile file)
+    s64 fds_file_size(FdsFile file)
     {
         if (!file.is_valid)
             return -1;
 
-        int64_t current = fds_file_tell(file);
+        s64 current = fds_file_tell(file);
         if (current < 0)
             return -1;
 
         if (!fds_file_seek(file, 0, FDS_SEEK_END))
             return -1;
 
-        int64_t size = fds_file_tell(file);
+        s64 size = fds_file_tell(file);
         fds_file_seek(file, current, FDS_SEEK_SET);
 
         return size;
@@ -2911,7 +2685,7 @@ extern "C"
         fflush(FDS_FILE_PTR(file));
     }
 
-    bool fds_file_write_magic(FdsFile *file, const char magic[4], uint32_t version)
+    bool fds_file_write_magic(FdsFile *file, const char magic[4], u32 version)
     {
         if (!file || !file->is_valid)
             return false;
@@ -2920,11 +2694,11 @@ extern "C"
         memcpy(header.magic, magic, 4);
         header.version = version;
 
-        size_t written = fds_file_write(*file, &header, sizeof(FdsFileHeader));
+        usize written = fds_file_write(*file, &header, sizeof(FdsFileHeader));
         return written == sizeof(FdsFileHeader);
     }
 
-    bool fds_file_skip(FdsFile file, int64_t bytes_to_skip)
+    bool fds_file_skip(FdsFile file, s64 bytes_to_skip)
     {
         // Якщо просити пропустити 0 байт — це успіх, нічого робити не треба
         if (bytes_to_skip == 0)
@@ -2937,13 +2711,13 @@ extern "C"
         return fds_file_seek(file, bytes_to_skip, FDS_SEEK_CUR);
     }
 
-    bool fds_file_check_magic(FdsFile *file, const char expected_magic[4], uint32_t min_version)
+    bool fds_file_check_magic(FdsFile *file, const char expected_magic[4], u32 min_version)
     {
         if (!file || !file->is_valid)
             return false;
 
         FdsFileHeader header zeroe;
-        size_t read_bytes = fds_file_read(*file, &header, sizeof(FdsFileHeader));
+        usize read_bytes = fds_file_read(*file, &header, sizeof(FdsFileHeader));
 
         if (read_bytes != sizeof(FdsFileHeader))
         {
@@ -2967,16 +2741,16 @@ extern "C"
     {
         if (!str)
             return false;
-        uint32_t len = (uint32_t)strlen(str);
+        u32 len = (u32)strlen(str);
         if (fds_file_write(file, &len, sizeof(len)) != sizeof(len))
             return false;
         return fds_file_write(file, str, len) == len;
     }
 
     // Повертає зліпок рядка
-    char *fds_file_read_str(FdsFile file, void *(*allocator)(size_t))
+    char *fds_file_read_str(FdsFile file, void *(*allocator)(usize))
     {
-        uint32_t len = 0;
+        u32 len = 0;
         if (fds_file_read(file, &len, sizeof(len)) != sizeof(len))
             return NULL;
         char *buf = (char *)allocator(len + 1);
@@ -2996,7 +2770,7 @@ extern "C"
 #include <unistd.h>
 #endif
 
-    FdsMappedFile fds_file_map(const char *path, uint32_t flags)
+    FdsMappedFile fds_file_map(const char *path, u32 flags)
     {
         FdsMappedFile mapped zeroe;
         if (!path)
@@ -3037,16 +2811,16 @@ extern "C"
         }
 
         mapped.data = ptr;
-        mapped.size = (size_t)file_size.QuadPart;
-        mapped.file_handle = (uintptr_t)hFile;
-        mapped.mapping_handle = (uintptr_t)hMapping;
+        mapped.size = (usize)file_size.QuadPart;
+        mapped.file_handle = (uptr)hFile;
+        mapped.mapping_handle = (uptr)hMapping;
         mapped.is_valid = true;
 
 #else // POSIX (Linux / macOS)
-        int open_flags = writable ? O_RDWR : O_RDONLY;
-        int prot = PROT_READ | (writable ? PROT_WRITE : 0);
+        s32 open_flags = writable ? O_RDWR : O_RDONLY;
+        s32 prot = PROT_READ | (writable ? PROT_WRITE : 0);
 
-        int fd = open(path, open_flags);
+        s32 fd = open(path, open_flags);
         if (fd < 0)
             return mapped;
 
@@ -3065,8 +2839,8 @@ extern "C"
         }
 
         mapped.data = ptr;
-        mapped.size = (size_t)st.st_size;
-        mapped.file_handle = (uintptr_t)fd;
+        mapped.size = (usize)st.st_size;
+        mapped.file_handle = (uptr)fd;
         mapped.mapping_handle = 0;
         mapped.is_valid = true;
 #endif
@@ -3085,7 +2859,7 @@ extern "C"
         CloseHandle((HANDLE)mapped->file_handle);
 #else
         munmap(mapped->data, mapped->size);
-        close((int)mapped->file_handle);
+        close((s32)mapped->file_handle);
 #endif
 
         mapped->data = NULL;
@@ -3110,7 +2884,7 @@ extern "C"
 #include <io.h>
 #include <fcntl.h>
 
-    FILE *fds_fmemopen_win32(void *buf, size_t size, const char *mode)
+    FILE *fds_fmemopen_win32(void *buf, usize size, const char *mode)
     {
         // 1. Створюємо анонімний "пайп" (канал) у пам'яті, який ОС сприймає як файл
         HANDLE hRead, hWrite;
@@ -3126,7 +2900,7 @@ extern "C"
         CloseHandle(hWrite); // Закриваємо сторону запису, щоб потік знав, де кінець
 
         // 3. Конвертуємо Windows HANDLE у стандартний файловий дескриптор C (fd)
-        int fd = _open_osfhandle((intptr_t)hRead, _O_RDONLY | _O_BINARY);
+        s32 fd = _open_osfhandle((iptr)hRead, _O_RDONLY | _O_BINARY);
         if (fd == -1)
         {
             CloseHandle(hRead);
@@ -3160,7 +2934,7 @@ extern "C"
         FILE *f = fmemopen(mapped->data, mapped->size, "r+b");
         if (f)
         {
-            file.handle = (uintptr_t)f;
+            file.handle = (uptr)f;
             file.is_valid = true;
         }
 
@@ -3190,7 +2964,7 @@ extern "C"
         va_start(args, fmt);
         va_copy(args_copy, args);
 
-        int len = vsnprintf(NULL, 0, fmt, args);
+        s32 len = vsnprintf(NULL, 0, fmt, args);
         va_end(args);
         if (len < 0)
         {
@@ -3215,8 +2989,6 @@ extern "C"
             return false;
         }
         sa->data[sa->size++] = buf;
-        if (sa->data)
-            sa->data[sa->size] = NULL; // NULL-sentinel
         return true;
     }
     // Reverse array of pointers in place
@@ -3224,7 +2996,7 @@ extern "C"
     {
         if (!sa || sa->size < 2)
             return;
-        for (size_t i = 0; i < sa->size / 2; i++)
+        for (usize i = 0; i < sa->size / 2; i++)
         {
             char *tmp = sa->data[i];
             sa->data[i] = sa->data[sa->size - 1 - i];
@@ -3235,7 +3007,7 @@ extern "C"
     // Transfer to registers
     void sa_to_upper(StringArray *sa)
     {
-        for (size_t i = 0; i < sa->size; i++)
+        for (usize i = 0; i < sa->size; i++)
         {
             for (char *p = sa->data[i]; *p; ++p)
                 *p = (char)toupper((unsigned char)*p);
@@ -3244,7 +3016,7 @@ extern "C"
 
     void sa_to_lower(StringArray *sa)
     {
-        for (size_t i = 0; i < sa->size; i++)
+        for (usize i = 0; i < sa->size; i++)
         {
             for (char *p = sa->data[i]; *p; ++p)
                 *p = (char)tolower((unsigned char)*p);
@@ -3252,27 +3024,27 @@ extern "C"
     }
 
     // Search with a custom comparator
-    size_t sa_find_custom(const StringArray *sa, const char *needle,
-                          int (*cmp)(const char *, const char *))
+    usize sa_find_custom(const StringArray *sa, const char *needle,
+                          s32 (*cmp)(const char *, const char *))
     {
         if (!cmp)
             cmp = strcmp;
-        for (size_t i = 0; i < sa->size; i++)
+        for (usize i = 0; i < sa->size; i++)
         {
             if (cmp(sa->data[i], needle) == 0)
                 return i;
         }
-        return (size_t)-1; // or SIZE_MAX
+        return (usize)-1; // or SIZE_MAX
     }
 
     bool sa_copy(StringArray *dst, const StringArray *src)
     {
         // The initial capacity is the same as that of the source, but at least 1
-        size_t cap = src->size > 0 ? src->size : 1;
+        usize cap = src->size > 0 ? src->size : 1;
         if (!sa_new(dst, cap))
             return false;
 
-        for (size_t i = 0; i < src->size; i++)
+        for (usize i = 0; i < src->size; i++)
         {
             if (!sa_push(dst, src->data[i]))
             {
@@ -3289,7 +3061,7 @@ extern "C"
     // ------------------------------------------------------------
     bool sa_append_array(StringArray *dst, const StringArray *src)
     {
-        for (size_t i = 0; i < src->size; i++)
+        for (usize i = 0; i < src->size; i++)
         {
             if (!sa_push(dst, src->data[i]))
                 return false;
@@ -3315,7 +3087,7 @@ extern "C"
         while (end > start && isspace((unsigned char)*(end - 1)))
             end--;
 
-        size_t len = (size_t)(end - start);
+        usize len = (usize)(end - start);
         char *trimmed = (char *)FDS_MALLOC(len + 1);
         if (!trimmed)
             return NULL;
@@ -3328,7 +3100,7 @@ extern "C"
     // ------------------------------------------------------------
     // Trim spaces on a specific line (replaces the line in place)
     // ------------------------------------------------------------
-    bool sa_trim_at(StringArray *sa, size_t idx)
+    bool sa_trim_at(StringArray *sa, usize idx)
     {
         if (idx >= sa->size)
             return false;
@@ -3347,7 +3119,7 @@ extern "C"
     // ------------------------------------------------------------
     void sa_trim(StringArray *sa)
     {
-        for (size_t i = 0; i < sa->size; i++)
+        for (usize i = 0; i < sa->size; i++)
         {
             // Ignore possible errors - it is better to leave the original
             sa_trim_at(sa, i);
@@ -3359,7 +3131,7 @@ extern "C"
     // ------------------------------------------------------------
     bool sa_contains(const StringArray *sa, const char *str)
     {
-        return sa_find(sa, str) != (size_t)-1;
+        return sa_find(sa, str) != (usize)-1;
     }
     bool sa_init_from_strings(StringArray *sa, const char *first, ...)
     {
@@ -3415,9 +3187,9 @@ extern "C"
     {
         if (sa->size == 0)
             return str_dup("");
-        size_t delim_len = delim ? strlen(delim) : 0;
-        size_t total = 1; // for '\0'
-        for (size_t i = 0; i < sa->size; i++)
+        usize delim_len = delim ? strlen(delim) : 0;
+        usize total = 1; // for '\0'
+        for (usize i = 0; i < sa->size; i++)
         {
             total += strlen(sa->data[i]);
             if (i < sa->size - 1)
@@ -3427,9 +3199,9 @@ extern "C"
         if (!result)
             return NULL;
         char *ptr = result;
-        for (size_t i = 0; i < sa->size; i++)
+        for (usize i = 0; i < sa->size; i++)
         {
-            size_t len = strlen(sa->data[i]);
+            usize len = strlen(sa->data[i]);
             memcpy(ptr, sa->data[i], len);
             ptr += len;
             if (delim_len && i < sa->size - 1)
@@ -3466,14 +3238,14 @@ extern "C"
     }
 
     // comparator by default
-    static inline int default_cmp(const void *a, const void *b)
+    static inline s32 default_cmp(const void *a, const void *b)
     {
         const char *str_a = *(const char **)a;
         const char *str_b = *(const char **)b;
         return strcmp(str_a, str_b);
     }
 
-    void sa_sort(StringArray *sa, int (*cmp)(const void *, const void *))
+    void sa_sort(StringArray *sa, s32 (*cmp)(const void *, const void *))
     {
         if (!cmp)
         {
@@ -3488,19 +3260,19 @@ extern "C"
         }
     }
 
-    size_t sa_find(const StringArray *sa, const char *str)
+    usize sa_find(const StringArray *sa, const char *str)
     {
-        for (size_t i = 0; i < sa->size; i++)
+        for (usize i = 0; i < sa->size; i++)
         {
             if (strcmp(sa->data[i], str) == 0)
                 return i;
         }
-        return (size_t)-1;
+        return (usize)-1;
     }
     // Just print each line on a new line
     void sa_print(const StringArray *sa)
     {
-        for (size_t i = 0; i < sa->size; i++)
+        for (usize i = 0; i < sa->size; i++)
         {
             printf("%s\n", sa->data[i]);
         }
@@ -3509,7 +3281,7 @@ extern "C"
     // Print each line with the index in square brackets
     void sa_print_lines(const StringArray *sa)
     {
-        for (size_t i = 0; i < sa->size; i++)
+        for (usize i = 0; i < sa->size; i++)
         {
             printf("  [%zu] %s\n", i, sa->data[i]);
         }
@@ -3518,7 +3290,7 @@ extern "C"
     // If output to a file is required
     void sa_fprint(FILE *stream, const StringArray *sa)
     {
-        for (size_t i = 0; i < sa->size; i++)
+        for (usize i = 0; i < sa->size; i++)
         {
             fprintf(stream, "%s\n", sa->data[i]);
         }
@@ -3528,7 +3300,7 @@ extern "C"
     {
         if (!s)
             return NULL;
-        size_t len = strlen(s);
+        usize len = strlen(s);
         char *copy = (char *)FDS_MALLOC(len + 1);
         if (copy)
             memcpy(copy, s, len + 1);
@@ -3538,7 +3310,7 @@ extern "C"
     // --- Internal: grow the data array ---
     static bool sa_grow(StringArray *sa)
     {
-        size_t new_cap = sa->capacity == 0 ? 4 : sa->capacity * 2;
+        usize new_cap = sa->capacity == 0 ? 4 : sa->capacity * 2;
         char **tmp = (char **)FDS_REALLOC(sa->data, new_cap * sizeof(char *));
         if (!tmp)
             return false;
@@ -3547,7 +3319,7 @@ extern "C"
         return true;
     }
 
-    bool sa_new(StringArray *sa, size_t initial_cap)
+    bool sa_new(StringArray *sa, usize initial_cap)
     {
         sa->data = NULL;
         sa->size = 0;
@@ -3591,7 +3363,7 @@ extern "C"
         return sa->data[--sa->size];
     }
 
-    bool sa_insert(StringArray *sa, size_t idx, const char *str)
+    bool sa_insert(StringArray *sa, usize idx, const char *str)
     {
         if (idx > sa->size)
             return false;
@@ -3608,7 +3380,7 @@ extern "C"
         return true;
     }
 
-    bool sa_remove(StringArray *sa, size_t idx)
+    bool sa_remove(StringArray *sa, usize idx)
     {
         if (idx >= sa->size)
             return false;
@@ -3620,12 +3392,12 @@ extern "C"
         return true;
     }
 
-    char *sa_get(StringArray *sa, size_t idx)
+    char *sa_get(StringArray *sa, usize idx)
     {
         return (idx < sa->size) ? sa->data[idx] : NULL;
     }
 
-    bool sa_set(StringArray *sa, size_t idx, const char *str)
+    bool sa_set(StringArray *sa, usize idx, const char *str)
     {
         if (idx >= sa->size)
             return false;
@@ -3637,14 +3409,14 @@ extern "C"
         return true;
     }
 
-    size_t sa_len(StringArray *sa)
+    usize sa_len(StringArray *sa)
     {
         return sa->size;
     }
 
     void sa_clear(StringArray *sa)
     {
-        for (size_t i = 0; i < sa->size; i++)
+        for (usize i = 0; i < sa->size; i++)
             FDS_FREE(sa->data[i]);
         sa->size = 0;
     }
@@ -3653,14 +3425,14 @@ extern "C"
 
     // String view functions Start ================================================================================================================
 
-    int sv_next_line(SV *text, SV *out_line)
+    s32 sv_next_line(SV *text, SV *out_line)
     {
         if (!text || !out_line || text->count == 0)
         {
             return 1; /* No more strings or false arguments */
         }
 
-        size_t i = 0;
+        usize i = 0;
         while (i < text->count && text->data[i] != '\n')
         {
             i++;
@@ -3676,12 +3448,12 @@ extern "C"
         }
 
         /* We move the original text forward, skipping the \n itself */
-        size_t advance = (i < text->count) ? i + 1 : i;
+        usize advance = (i < text->count) ? i + 1 : i;
         sv_remove_prefix(text, advance);
 
         return 0;
     }
-    void sv_remove_prefix(SV *sv, size_t count)
+    void sv_remove_prefix(SV *sv, usize count)
     {
         if (count > sv->count)
             count = sv->count;
@@ -3704,7 +3476,22 @@ extern "C"
         return cstr;
     }
 
-    char sv_at(SV sv, size_t index)
+    char *sv_to_cstr_arena(SV sv, FixedArena *arena)
+    {
+        char *cstr = (char *)fixed_arena_alloc(arena, sv.count + 1);
+        if (cstr == NULL)
+        {
+            fds_log(FFATAL, "Out of memory");
+        }
+        if (sv.count > 0)
+        {
+            memcpy(cstr, sv.data, sv.count);
+        }
+        cstr[sv.count] = '\0';
+        return cstr;
+    }
+
+    char sv_at(SV sv, usize index)
     {
         FDS_ASSERT(index < sv.count, "index < sv.count");
         return sv.data[index];
@@ -3735,7 +3522,7 @@ extern "C"
         return sv;
     }
 
-    SV sv_from_parts(const char *str, size_t len)
+    SV sv_from_parts(const char *str, usize len)
     {
         FDS_ASSERT(str != NULL || len == 0, "str != NULL || len == 0");
         SV sv;
@@ -3744,7 +3531,7 @@ extern "C"
         return sv;
     }
 
-    int sv_eq(SV sv1, SV sv2)
+    s32 sv_eq(SV sv1, SV sv2)
     {
         if (sv1.count != sv2.count)
             return 0;
@@ -3753,10 +3540,10 @@ extern "C"
         return memcmp(sv1.data, sv2.data, sv1.count) == 0;
     }
 
-    int sv_eq_cstr(SV sv1, const char *str)
+    s32 sv_eq_cstr(SV sv1, const char *str)
     {
         FDS_ASSERT(str != NULL, "str != NULL");
-        size_t len = strlen(str);
+        usize len = strlen(str);
         if (sv1.count != len)
             return 0;
         if (sv1.count == 0)
@@ -3787,7 +3574,7 @@ extern "C"
         sv_trim_right(sv);
     }
 
-    void sv_slice(SV *sv, size_t begin, size_t end)
+    void sv_slice(SV *sv, usize begin, usize end)
     {
         if (begin > end)
             begin = end;
@@ -3799,7 +3586,7 @@ extern "C"
             sv->data = EMPTY_STR;
     }
 
-    void sv_remove_suffix(SV *sv, size_t count)
+    void sv_remove_suffix(SV *sv, usize count)
     {
         if (count > sv->count)
             count = sv->count;
@@ -3808,7 +3595,7 @@ extern "C"
             sv->data = EMPTY_STR;
     }
 
-    int sv_ends_with(SV sv, SV suffix)
+    s32 sv_ends_with(SV sv, SV suffix)
     {
         if (suffix.count == 0)
             return 1;
@@ -3817,7 +3604,7 @@ extern "C"
         return memcmp(sv.data + sv.count - suffix.count, suffix.data, suffix.count) == 0;
     }
 
-    int sv_starts_with(SV sv, SV prefix)
+    s32 sv_starts_with(SV sv, SV prefix)
     {
         if (prefix.count == 0)
             return 1;
@@ -3826,19 +3613,19 @@ extern "C"
         return memcmp(sv.data, prefix.data, prefix.count) == 0;
     }
 
-    int sv_starts_with_char(SV sv, char c)
+    s32 sv_starts_with_char(SV sv, char c)
     {
         return sv.count > 0 && sv.data[0] == c;
     }
 
-    int sv_ends_with_char(SV sv, char c)
+    s32 sv_ends_with_char(SV sv, char c)
     {
         return sv.count > 0 && sv.data[sv.count - 1] == c;
     }
 
     SV sv_split_left(SV *sv, char c)
     {
-        size_t pos = sv_find_char(*sv, c);
+        usize pos = sv_find_char(*sv, c);
         if (pos == SIZE_MAX)
         {
             SV out = *sv;
@@ -3853,7 +3640,7 @@ extern "C"
 
     SV sv_split_right(SV *sv, char c)
     {
-        size_t pos = sv_rfind_char(*sv, c);
+        usize pos = sv_rfind_char(*sv, c);
         if (pos == SIZE_MAX)
         {
             /* no separator: left part = entire *sv, right = empty */
@@ -3867,23 +3654,23 @@ extern "C"
         return out;
     }
 
-    size_t sv_find_char(SV sv, char c)
+    usize sv_find_char(SV sv, char c)
     {
-        for (size_t i = 0; i < sv.count; i++)
+        for (usize i = 0; i < sv.count; i++)
             if (sv.data[i] == c)
                 return i;
         return SIZE_MAX;
     }
 
-    size_t sv_rfind_char(SV sv, char c)
+    usize sv_rfind_char(SV sv, char c)
     {
-        for (size_t i = sv.count; i > 0; i--)
+        for (usize i = sv.count; i > 0; i--)
             if (sv.data[i - 1] == c)
                 return i - 1;
         return SIZE_MAX;
     }
 
-    int sv_consume_char(SV *sv, char c)
+    s32 sv_consume_char(SV *sv, char c)
     {
         if (sv->count == 0 || sv->data[0] != c)
             return 0;
@@ -3891,7 +3678,7 @@ extern "C"
         return 1;
     }
 
-    int sv_consume(SV *sv, SV prefix)
+    s32 sv_consume(SV *sv, SV prefix)
     {
         if (!sv_starts_with(*sv, prefix))
             return 0;
@@ -3918,7 +3705,7 @@ extern "C"
     {
         SB sb zeroe;
         /* We choose the capacity: either by default SB_INITIAL_CAPACITY, or under the size of SV + NUL */
-        size_t needed = sv.count + 1;
+        usize needed = sv.count + 1;
         sb.capacity = (needed > SB_INITIAL_CAPACITY) ? needed : SB_INITIAL_CAPACITY;
 
         sb.items = (char *)FDS_MALLOC(sb.capacity);
@@ -3935,10 +3722,10 @@ extern "C"
         sb.items[sb.count] = '\0';
         return sb;
     }
-    static void sb_grow(SB *sb, size_t size)
+    static void sb_grow(SB *sb, usize size)
     {
         /* Checking for overflow when calculating the required volume */
-        size_t needed;
+        usize needed;
         if (!safe_add(sb->count, size, &needed) || !safe_add(needed, 1, &needed))
         {
             fds_log(FERROR, "Requested size too large");
@@ -3949,7 +3736,7 @@ extern "C"
             return;
 
         /* We calculate the new capacity */
-        size_t new_cap = sb->capacity;
+        usize new_cap = sb->capacity;
         if (new_cap == 0)
         {
             new_cap = SB_INITIAL_CAPACITY;
@@ -3987,7 +3774,7 @@ extern "C"
     {
         FDS_ASSERT(str != NULL, "std != NULL");
         SB sb zeroe;
-        size_t len = strlen(str);
+        usize len = strlen(str);
         sb.count = len;
         sb.capacity = len + 1;
         sb.items = (char *)FDS_MALLOC(sb.capacity);
@@ -4023,14 +3810,14 @@ extern "C"
     void sb_append(SB *sb, const char *str)
     {
         FDS_ASSERT(str != NULL, "str != NULL");
-        size_t len = strlen(str);
+        usize len = strlen(str);
         sb_grow(sb, len);
         memcpy(sb->items + sb->count, str, len);
         sb->count += len;
         sb->items[sb->count] = '\0';
     }
 
-    void sb_append_n(SB *sb, const char *str, size_t len)
+    void sb_append_n(SB *sb, const char *str, usize len)
     {
         FDS_ASSERT(str != NULL || len == 0, "str != NULL || len == 0");
         if (len == 0)
@@ -4041,7 +3828,7 @@ extern "C"
         sb->items[sb->count] = '\0';
     }
 
-    void sb_reserve(SB *sb, size_t capacity)
+    void sb_reserve(SB *sb, usize capacity)
     {
         if (capacity <= sb->capacity)
             return;
@@ -4054,11 +3841,11 @@ extern "C"
         sb->capacity = capacity;
     }
 
-    void sb_reserve_extra(SB *sb, size_t extra)
+    void sb_reserve_extra(SB *sb, usize extra)
     {
         if (extra == 0)
             return;
-        size_t new_cap;
+        usize new_cap;
         if (!safe_add(sb->capacity, extra, &new_cap))
         {
             fds_log(FFATAL, "Capacity overflow");
@@ -4111,16 +3898,16 @@ extern "C"
         va_start(args, fmt);
         va_list copy;
         va_copy(copy, args);
-        int len = vsnprintf(NULL, 0, fmt, copy);
+        s32 len = vsnprintf(NULL, 0, fmt, copy);
         va_end(copy);
         if (len <= 0)
         {
             va_end(args);
             return;
         }
-        sb_grow(sb, (size_t)len);
-        vsnprintf(sb->items + sb->count, (size_t)len + 1, fmt, args);
-        sb->count += (size_t)len;
+        sb_grow(sb, (usize)len);
+        vsnprintf(sb->items + sb->count, (usize)len + 1, fmt, args);
+        sb->count += (usize)len;
         va_end(args);
     }
 
@@ -4262,7 +4049,7 @@ extern "C"
     {                                                                 \
         if ((da)->count >= (da)->capacity)                            \
         {                                                             \
-            size_t new_cap = (da)->capacity ? (da)->capacity * 2 : 4; \
+            usize new_cap = (da)->capacity ? (da)->capacity * 2 : 4; \
             da_realloc((da), new_cap);                                \
         }                                                             \
         (da)->items[(da)->count++] = (value);                         \
@@ -4272,10 +4059,10 @@ extern "C"
 #define da_grow(da, extra)                                        \
     do                                                            \
     {                                                             \
-        size_t need = (da)->count + (extra);                      \
+        usize need = (da)->count + (extra);                      \
         if (need > (da)->capacity)                                \
         {                                                         \
-            size_t cap = (da)->capacity ? (da)->capacity * 2 : 4; \
+            usize cap = (da)->capacity ? (da)->capacity * 2 : 4; \
             while (cap < need)                                    \
                 cap *= 2;                                         \
             da_realloc((da), cap);                                \
@@ -4287,7 +4074,7 @@ extern "C"
 #define da_resize(da, size)                                                                \
     do                                                                                     \
     {                                                                                      \
-        size_t _old_cnt = (da)->count;                                                     \
+        usize _old_cnt = (da)->count;                                                     \
         da_reserve((da), (size));                                                          \
         (da)->count = (size);                                                              \
         if ((size) > _old_cnt)                                                             \
@@ -4308,16 +4095,16 @@ extern "C"
     {
         flagset_var(fs, FLAG_STRING, ptr, name, defval, usage);
     }
-    static inline void flagset_int(FlagSet *fs, int *ptr, const char *name, int defval, const char *usage)
+    static inline void flagset_int(FlagSet *fs, s32 *ptr, const char *name, s32 defval, const char *usage)
     {
         char buf[32];
         snprintf(buf, sizeof(buf), "%d", defval);
         flagset_var(fs, FLAG_INT, ptr, name, buf, usage);
     }
-    static inline void flagset_float(FlagSet *fs, float *ptr, const char *name, float defval, const char *usage)
+    static inline void flagset_float(FlagSet *fs, f32 *ptr, const char *name, f32 defval, const char *usage)
     {
         char buf[64];
-        snprintf(buf, sizeof(buf), "%g", (double)defval);
+        snprintf(buf, sizeof(buf), "%g", (f64)defval);
         flagset_var(fs, FLAG_FLOAT, ptr, name, buf, usage);
     }
     static inline void flagset_string_list(FlagSet *fs, void *list, const char *name, const char *usage)
@@ -4338,7 +4125,7 @@ extern "C"
     {
         if (sv.count == 0)
             return false;
-        size_t i = 0;
+        usize i = 0;
         if (sv.data[0] == '-' || sv.data[0] == '+')
             i++;
         if (i == sv.count)
@@ -4349,33 +4136,33 @@ extern "C"
         return true;
     }
 
-    static int sv_to_int(SV sv)
+    static s32 sv_to_int(SV sv)
     {
         char *cstr = sv_to_cstr(sv);
         long val = strtol(cstr, NULL, 10);
         FDS_FREE(cstr);
-        return (int)val;
+        return (s32)val;
     }
 
-    static float sv_to_float(SV sv)
+    static f32 sv_to_float(SV sv)
     {
         char *cstr = sv_to_cstr(sv);
         char *end;
-        float val = strtof(cstr, &end);
+        f32 val = strtof(cstr, &end);
 
         bool is_invalid = (end == cstr || *end != '\0');
         FDS_FREE(cstr);
 
         if (is_invalid)
         {
-            fds_log(FERROR, "invalid float value: " SV_FMT, SV_ARGS(sv));
+            fds_log(FERROR, "invalid f32 value: " SV_FMT, SV_ARGS(sv));
         }
         return val;
     }
 
     static Flag *find_flag(FlagSet *fs, SV name)
     {
-        for (size_t i = 0; i < fs->count; i++)
+        for (usize i = 0; i < fs->count; i++)
             if (sv_eq_cstr(name, fs->items[i].name))
                 return &fs->items[i];
         return NULL;
@@ -4413,10 +4200,10 @@ extern "C"
             {
                 fds_log(FERROR, "invalid integer value for -%s: " SV_FMT, f->name, SV_ARGS(val));
             }
-            *(int *)f->ptr = sv_to_int(val);
+            *(s32 *)f->ptr = sv_to_int(val);
             break;
         case FLAG_FLOAT:
-            *(float *)f->ptr = sv_to_float(val);
+            *(f32 *)f->ptr = sv_to_float(val);
             break;
         case FLAG_STRING_LIST:
             da_push((da_SV *)f->ptr, val);
@@ -4453,7 +4240,7 @@ extern "C"
         if (!fs)
             return;
 
-        for (size_t i = 0; i < fs->count; i++)
+        for (usize i = 0; i < fs->count; i++)
         {
             // We free memory for C-strings, because they are guaranteed to lie in the heap
             if (fs->items[i].type == FLAG_STRING)
@@ -4488,6 +4275,10 @@ extern "C"
                 list->count = list->capacity = 0;
                 break;
             }
+            case FLAG_STRING:
+            case FLAG_INT:
+            case FLAG_FLOAT:
+            case FLAG_BOOL:
             default:
                 break;
             }
@@ -4517,7 +4308,7 @@ extern "C"
                      const char *defval, const char *usage)
     {
         Flag f;
-        size_t name_len = strlen(name) + 1;
+        usize name_len = strlen(name) + 1;
         f.name = (char *)FDS_MALLOC(name_len);
         f.defval = strdup(defval);
         f.usage = strdup(usage);
@@ -4545,7 +4336,7 @@ extern "C"
         {
             SV def_sv = sv_from_cstr(f.defval);
             set_flag_value(&f, def_sv);
-            // For bool, int, float, after setting the default, reset set,
+            // For bool, s32, f32, after setting the default, reset set,
             // so that it can be determined whether the flag was explicitly passed.
             f.set = false;
         }
@@ -4561,11 +4352,11 @@ extern "C"
         }
     }
 
-    void flagset_parse(FlagSet *fs, int argc, char **argv)
+    void flagset_parse(FlagSet *fs, s32 argc, char **argv)
     {
         fs->name = argv[0];
 
-        size_t args_max = argc;
+        usize args_max = argc;
         fs->args = (SV *)FDS_MALLOC(args_max * sizeof(SV));
         if (!fs->args)
         {
@@ -4574,7 +4365,7 @@ extern "C"
         fs->args_cap = args_max;
         fs->args_count = 0;
 
-        int i = 1;
+        s32 i = 1;
         bool end_of_flags = false;
 
         while (i < argc)
@@ -4604,7 +4395,7 @@ extern "C"
                 }
 
                 SV name_sv, value_sv = sv_new();
-                size_t eq_pos = sv_find_char(rest, '=');
+                usize eq_pos = sv_find_char(rest, '=');
                 if (eq_pos != SV_NPOS)
                 {
                     name_sv = sv_from_parts(rest.data, eq_pos);
@@ -4620,7 +4411,7 @@ extern "C"
                 if (!f)
                 {
                     flagset_usage(fs);
-                    fds_log(FERROR, "flag provided but not defined: -%.*s", (int)name_sv.count, name_sv.data);
+                    fds_log(FERROR, "flag provided but not defined: -%.*s", (s32)name_sv.count, name_sv.data);
                 }
 
                 if (f->type == FLAG_BOOL && eq_pos == SV_NPOS)
@@ -4645,7 +4436,7 @@ extern "C"
             {
                 if (fs->args_count >= fs->args_cap)
                 {
-                    size_t new_cap = fs->args_cap * 2;
+                    usize new_cap = fs->args_cap * 2;
                     SV *new_args = (SV *)FDS_REALLOC(fs->args, new_cap * sizeof(SV));
                     if (!new_args)
                     {
@@ -4660,7 +4451,7 @@ extern "C"
         }
 
         // Checking mandatory flags
-        for (size_t j = 0; j < fs->count; j++)
+        for (usize j = 0; j < fs->count; j++)
         {
             Flag *f = &fs->items[j];
             if (f->required && !f->set)
@@ -4671,12 +4462,12 @@ extern "C"
         }
     }
 
-    size_t flagset_narg(FlagSet *fs)
+    usize flagset_narg(FlagSet *fs)
     {
         return fs->args_count;
     }
 
-    SV flagset_arg(FlagSet *fs, size_t i)
+    SV flagset_arg(FlagSet *fs, usize i)
     {
         if (i >= fs->args_count)
             return sv_new();
@@ -4693,7 +4484,7 @@ extern "C"
 
         printf("Usage: %s [options] ...\n", fs->name ? fs->name : "program");
         printf("Options:\n");
-        for (size_t i = 0; i < fs->count; i++)
+        for (usize i = 0; i < fs->count; i++)
         {
             Flag *f = &fs->items[i];
             printf("  -%s", f->name);
@@ -4710,271 +4501,9 @@ extern "C"
 
     // Flag parser fuctions End ================================================================================================================
 
-    // Compression fuctions Start ================================================================================================================
-    FdsCompressStatus fds_compress_lz(FdsBytesView input, FdsBytesBuilder *out_builder)
-    {
-        if (!out_builder)
-            return FDS_CMP_ERROR;
-        if (input.size > 0 && !input.data)
-            return FDS_CMP_ERROR;
-        if (input.size > UINT32_MAX)
-            return FDS_CMP_ERROR;
-
-        // Примусово очищуємо білдер, щоб уникнути проблеми "+17 байт" при повторному використанні
-        out_builder->size = 0;
-        size_t start_pos = 0;
-
-        if (input.size == 0)
-        {
-            fds_bb_append_byte(out_builder, FDS_LZ_MAGIC_0);
-            fds_bb_append_byte(out_builder, FDS_LZ_MAGIC_1);
-            fds_bb_append_byte(out_builder, FDS_LZ_MODE_RAW);
-            fds_bb_append_byte(out_builder, 0x00);
-            fds_bb_append_u32_le(out_builder, 0);
-            return FDS_CMP_STORED;
-        }
-
-        // 1. Заголовок
-        fds_bb_append_byte(out_builder, FDS_LZ_MAGIC_0);
-        fds_bb_append_byte(out_builder, FDS_LZ_MAGIC_1);
-        fds_bb_append_byte(out_builder, FDS_LZ_MODE_LZSS);
-        fds_bb_append_byte(out_builder, 0x00);
-        fds_bb_append_u32_le(out_builder, (uint32_t)input.size);
-
-        size_t header_size = 8;
-
-        // Ланцюжки хешів для глибокого пошуку (забезпечує максимальне стиснення)
-        int32_t hash_head[FDS_LZ_HASH_SIZE];
-        int32_t hash_prev[FDS_LZ_WINDOW_SIZE];
-        for (int i = 0; i < FDS_LZ_HASH_SIZE; ++i)
-            hash_head[i] = -1;
-
-        size_t pos = 0;
-
-        // 2. Стиснення LZSS
-        while (pos < input.size)
-        {
-            size_t flags_offset = out_builder->size;
-            fds_bb_append_byte(out_builder, 0x00);
-            uint8_t flags = 0;
-
-            for (int bit = 0; bit < 8 && pos < input.size; ++bit)
-            {
-                size_t match_len = 0;
-                size_t match_dist = 0;
-
-                if (pos + FDS_LZ_MIN_MATCH <= input.size)
-                {
-                    uint32_t h = ((uint32_t)input.data[pos] * 251u) ^
-                                 ((uint32_t)input.data[pos + 1] * 509u) ^
-                                 (uint32_t)input.data[pos + 2];
-                    h &= (FDS_LZ_HASH_SIZE - 1);
-
-                    int32_t candidate = hash_head[h];
-                    int limit = 256; // Шукаємо до 256 вузлів вглиб історії
-
-                    while (candidate >= 0 && (pos - candidate) <= FDS_LZ_WINDOW_SIZE && limit-- > 0)
-                    {
-                        size_t dist = pos - candidate;
-                        size_t max_len = input.size - pos;
-                        if (max_len > FDS_LZ_MAX_MATCH)
-                            max_len = FDS_LZ_MAX_MATCH;
-
-                        size_t len = 0;
-                        while (len < max_len && input.data[candidate + len] == input.data[pos + len])
-                        {
-                            len++;
-                        }
-
-                        if (len > match_len)
-                        {
-                            match_len = len;
-                            match_dist = dist;
-                            if (match_len == FDS_LZ_MAX_MATCH)
-                                break; // Знайшли ідеал - виходимо
-                        }
-                        candidate = hash_prev[candidate % FDS_LZ_WINDOW_SIZE];
-                    }
-                }
-
-                if (match_len >= FDS_LZ_MIN_MATCH)
-                {
-                    flags |= (uint8_t)(1 << bit);
-                    uint16_t dist_enc = (uint16_t)(match_dist - 1);
-                    uint16_t len_enc = (uint16_t)(match_len - FDS_LZ_MIN_MATCH);
-                    uint16_t token = (dist_enc << 4) | (len_enc & 0x0F);
-
-                    fds_bb_append_u16_le(out_builder, token);
-
-                    // Записуємо пропущені байти в словник
-                    for (size_t k = 0; k < match_len; ++k)
-                    {
-                        if (pos + k + FDS_LZ_MIN_MATCH <= input.size)
-                        {
-                            uint32_t h = ((uint32_t)input.data[pos + k] * 251u) ^
-                                         ((uint32_t)input.data[pos + k + 1] * 509u) ^
-                                         (uint32_t)input.data[pos + k + 2];
-                            h &= (FDS_LZ_HASH_SIZE - 1);
-                            hash_prev[(pos + k) % FDS_LZ_WINDOW_SIZE] = hash_head[h];
-                            hash_head[h] = (int32_t)(pos + k);
-                        }
-                    }
-                    pos += match_len;
-                }
-                else
-                {
-                    if (pos + FDS_LZ_MIN_MATCH <= input.size)
-                    {
-                        uint32_t h = ((uint32_t)input.data[pos] * 251u) ^
-                                     ((uint32_t)input.data[pos + 1] * 509u) ^
-                                     (uint32_t)input.data[pos + 2];
-                        h &= (FDS_LZ_HASH_SIZE - 1);
-                        hash_prev[pos % FDS_LZ_WINDOW_SIZE] = hash_head[h];
-                        hash_head[h] = (int32_t)pos;
-                    }
-                    fds_bb_append_byte(out_builder, input.data[pos++]);
-                }
-            }
-
-            out_builder->data[flags_offset] = flags;
-
-            // Ранній вихід, якщо стиснення неефективне
-            if ((out_builder->size - start_pos) >= (input.size + header_size))
-            {
-                break;
-            }
-        }
-
-        size_t total_compressed_size = out_builder->size - start_pos;
-
-        // 3. Fallback (збереження RAW)
-        if (total_compressed_size >= (input.size + header_size))
-        {
-            out_builder->size = start_pos;
-
-            fds_bb_append_byte(out_builder, FDS_LZ_MAGIC_0);
-            fds_bb_append_byte(out_builder, FDS_LZ_MAGIC_1);
-            fds_bb_append_byte(out_builder, FDS_LZ_MODE_RAW);
-            fds_bb_append_byte(out_builder, 0x00);
-            fds_bb_append_u32_le(out_builder, (uint32_t)input.size);
-            fds_bb_append(out_builder, input.data, input.size);
-
-            return FDS_CMP_STORED;
-        }
-
-        return FDS_CMP_COMPRESSED;
-    }
-
-    bool fds_decompress_lz(FdsBytesView input, FdsBytesBuilder *out_builder)
-    {
-        if (!out_builder)
-            return false;
-
-        // Примусово обнуляємо для точного співпадіння розмірів з оригіналом (без append)
-        out_builder->size = 0;
-        size_t start_size = 0;
-
-#define FDS_DECOMP_FAIL()               \
-    do                                  \
-    {                                   \
-        out_builder->size = start_size; \
-        return false;                   \
-    } while (0)
-
-        // 1. Читання заголовка
-        uint8_t m0, m1, mode, reserved;
-        uint32_t orig_size;
-
-        if (!fds_bv_pop_byte(&input, &m0) || m0 != FDS_LZ_MAGIC_0)
-            FDS_DECOMP_FAIL();
-        if (!fds_bv_pop_byte(&input, &m1) || m1 != FDS_LZ_MAGIC_1)
-            FDS_DECOMP_FAIL();
-        if (!fds_bv_pop_byte(&input, &mode))
-            FDS_DECOMP_FAIL();
-        if (!fds_bv_pop_byte(&input, &reserved))
-            FDS_DECOMP_FAIL();
-        if (!fds_bv_read_u32_le(&input, &orig_size))
-            FDS_DECOMP_FAIL();
-
-        if (reserved != 0)
-            FDS_DECOMP_FAIL();
-
-        size_t target_size = start_size + orig_size;
-
-        // 2. Декомпресія RAW
-        if (mode == FDS_LZ_MODE_RAW)
-        {
-            if (input.size != orig_size)
-                FDS_DECOMP_FAIL();
-
-            fds_bb_reserve(out_builder, orig_size);
-            fds_bb_append(out_builder, input.data, orig_size);
-            return true;
-        }
-
-        // 3. Декомпресія LZSS
-        if (mode == FDS_LZ_MODE_LZSS)
-        {
-            fds_bb_reserve(out_builder, orig_size);
-
-            while (input.size > 0 && out_builder->size < target_size)
-            {
-                uint8_t flags;
-                if (!fds_bv_pop_byte(&input, &flags))
-                    FDS_DECOMP_FAIL();
-
-                for (int bit = 0; bit < 8; ++bit)
-                {
-                    if (out_builder->size >= target_size)
-                        break;
-
-                    if ((flags & (1 << bit)) == 0)
-                    {
-                        uint8_t byte;
-                        if (!fds_bv_pop_byte(&input, &byte))
-                            FDS_DECOMP_FAIL();
-                        fds_bb_append_byte(out_builder, byte);
-                    }
-                    else
-                    {
-                        uint16_t token;
-                        if (!fds_bv_read_u16_le(&input, &token))
-                            FDS_DECOMP_FAIL();
-
-                        size_t dist = (token >> 4) + 1;
-                        size_t len = (token & 0x0F) + FDS_LZ_MIN_MATCH;
-
-                        if (len > target_size - out_builder->size)
-                            FDS_DECOMP_FAIL();
-                        if (dist > (out_builder->size - start_size))
-                            FDS_DECOMP_FAIL();
-
-                        size_t src_start = out_builder->size - dist;
-                        fds_bb_reserve(out_builder, len);
-                        for (size_t i = 0; i < len; ++i)
-                        {
-                            out_builder->data[out_builder->size++] = out_builder->data[src_start + i];
-                        }
-                    }
-                }
-            }
-
-            if (out_builder->size != target_size || input.size > 0)
-            {
-                FDS_DECOMP_FAIL();
-            }
-            return true;
-        }
-
-        FDS_DECOMP_FAIL();
-
-#undef FDS_DECOMP_FAIL
-    }
-    // Compression fuctions End ================================================================================================================
-
     // Fixed arena fuctions Start ================================================================================================================
 
-    FixedArena fixed_arena_create(size_t capacity)
+    FixedArena fixed_arena_create(usize capacity)
     {
         FixedArena arena = zero;
         arena.data = (unsigned char *)FDS_MALLOC(capacity);
@@ -4982,6 +4511,17 @@ extern "C"
         arena.capacity = capacity;
         return arena;
     }
+    
+    
+    FixedArena fixed_arena_create_zero(usize capacity)
+    {
+        FixedArena arena = zero;
+        arena.data = (unsigned char *)FDS_CALLOC(1,capacity);
+        FDS_ASSERT(arena.data, "arena.data"); // malloc returned NULL – programmer error (out of memory)
+        arena.capacity = capacity;
+        return arena;
+    }
+    
 
     void fixed_arena_free(FixedArena *arena)
     {
@@ -4999,25 +4539,25 @@ extern "C"
     }
 
     // status information
-    size_t fixed_arena_used(const FixedArena *arena)
+    usize fixed_arena_used(const FixedArena *arena)
     {
         FDS_ASSERT(arena, "arena");
         return arena->offset;
     }
 
-    size_t fixed_arena_available(const FixedArena *arena)
+    usize fixed_arena_available(const FixedArena *arena)
     {
         FDS_ASSERT(arena, "arena");
         return arena->capacity - arena->offset;
     }
 
-    int fixed_arena_is_empty(const FixedArena *arena)
+    s32 fixed_arena_is_empty(const FixedArena *arena)
     {
         FDS_ASSERT(arena, "arena");
         return arena->offset == 0;
     }
 
-    int fixed_arena_contains(const FixedArena *arena, const void *ptr)
+    s32 fixed_arena_contains(const FixedArena *arena, const void *ptr)
     {
         FDS_ASSERT(arena, "arena");
         const unsigned char *p = (const unsigned char *)ptr;
@@ -5038,16 +4578,16 @@ extern "C"
     }
 
     // Main allocators
-    void *fixed_arena_alloc_align(FixedArena *arena, size_t size, size_t alignment)
+    void *fixed_arena_alloc_align(FixedArena *arena, usize size, usize alignment)
     {
         FDS_ASSERT(arena, "arena");
         FDS_ASSERT(size > 0, "size > 0");
         FDS_ASSERT(alignment > 0, "alignment > 0");
         FDS_ASSERT((alignment & (alignment - 1)) == 0, "(alignment & (alignment - 1)) == 0"); // power of two
 
-        uintptr_t ptr = (uintptr_t)(arena->data + arena->offset);
-        uintptr_t aligned = (ptr + alignment - 1) & ~(uintptr_t)(alignment - 1);
-        size_t padding = aligned - ptr;
+        uptr ptr = (uptr)(arena->data + arena->offset);
+        uptr aligned = (ptr + alignment - 1) & ~(uptr)(alignment - 1);
+        usize padding = aligned - ptr;
 
         // Protection against overflow
         if (padding > arena->capacity - arena->offset ||
@@ -5063,22 +4603,22 @@ extern "C"
         return result;
     }
 
-    void *fixed_arena_alloc(FixedArena *arena, size_t size)
+    void *fixed_arena_alloc(FixedArena *arena, usize size)
     {
         return fixed_arena_alloc_align(arena, size, sizeof(void *));
     }
 
-    void *fixed_arena_alloc_zero(FixedArena *arena, size_t size)
+    void *fixed_arena_alloc_zero(FixedArena *arena, usize size)
     {
         void *ptr = fixed_arena_alloc(arena, size);
         memset(ptr, 0, size);
         return ptr;
     }
 
-    void *fixed_arena_alloc_array(FixedArena *arena, size_t count, size_t element_size)
+    void *fixed_arena_alloc_array(FixedArena *arena, usize count, usize element_size)
     {
         // Multiplication overflow check
-        size_t total;
+        usize total;
         if (count > 0 && element_size > SIZE_MAX / count)
         {
             fds_log(FFATAL, "Array size overflow");
@@ -5088,14 +4628,14 @@ extern "C"
     }
 
     // data copying
-    void *fixed_arena_memdup(FixedArena *arena, const void *src, size_t size)
+    void *fixed_arena_memdup(FixedArena *arena, const void *src, usize size)
     {
         void *dst = fixed_arena_alloc(arena, size);
         memcpy(dst, src, size);
         return dst;
     }
 
-    char *fixed_arena_strndup(FixedArena *arena, const char *str, size_t len)
+    char *fixed_arena_strndup(FixedArena *arena, const char *str, usize len)
     {
         char *dst = (char *)fixed_arena_alloc(arena, len + 1);
         memcpy(dst, str, len);
@@ -5121,7 +4661,7 @@ extern "C"
         }
         return &temp_arena_instance;
     }
-    static inline void _temp_arena_thread_cleanup(int *dummy)
+    void _temp_arena_thread_cleanup(s32 *dummy)
     {
         (void)dummy; // Avoid the unused variable warning
         temp_arena_destroy();
@@ -5151,12 +4691,12 @@ extern "C"
         // We find out the length
         va_list args_copy;
         va_copy(args_copy, args);
-        int needed = vsnprintf(NULL, 0, fmt, args_copy);
+        s32 needed = vsnprintf(NULL, 0, fmt, args_copy);
         va_end(args_copy);
         if (needed < 0)
             return NULL;
 
-        size_t size = (size_t)needed + 1; // +1 for '\0'
+        usize size = (usize)needed + 1; // +1 for '\0'
         char *buf = (char *)fixed_arena_alloc(arena, size);
         if (!buf)
             return NULL; // If the arena cannot return NULL, then abort
@@ -5165,7 +4705,7 @@ extern "C"
         va_end(args);
         return buf;
     }
-    static inline void temp_arena_restore_mark(FixedArenaMark *mark)
+    void temp_arena_restore_mark(FixedArenaMark *mark)
     {
         if (mark)
             fixed_arena_restore(temp_arena_get(), *mark);
@@ -5179,8 +4719,16 @@ extern "C"
     {
         IniConfig config = zero;
 
-        // We allocate an arena for reading the file. 2 MB for INI is enough with a margin
+        if (content.data == NULL && content.count != 0)
+        {
+            return config;
+        }
+
+        // Copy the source data into the config arena so all SVs remain valid after the caller
+        // releases the original buffer or temporary string.
         config.arena = fixed_arena_create(content.count + 2 * MB);
+        char *copy = (char *)fixed_arena_memdup(&config.arena, content.data, content.count);
+        SV local_content = sv_from_parts(copy, content.count);
 
         // We create a global section (for keys that go to the first [Section])
         IniSection global_sec = zero;
@@ -5189,7 +4737,7 @@ extern "C"
 
         SV line;
         // sv_next_line independently splits text by '\n' and discards '\r'
-        while (sv_next_line(&content, &line) == 0)
+        while (sv_next_line(&local_content, &line) == 0)
         {
             sv_trim(&line); // We remove spaces from both sides
 
@@ -5239,7 +4787,7 @@ extern "C"
     IniConfig ini_parse(const char *filepath)
     {
         IniConfig config = zero;
-        size_t file_size = fds_get_file_size(filepath);
+        usize file_size = fds_get_file_size(filepath);
         // We allocate an arena for reading the file. 2 MB for INI is enough with a margin
         config.arena = fixed_arena_create(file_size + 2 * MB);
 
@@ -5307,7 +4855,7 @@ extern "C"
     void ini_free(IniConfig *config)
     {
         // We release key arrays inside each section
-        for (size_t i = 0; i < config->count; i++)
+        for (usize i = 0; i < config->count; i++)
         {
             da_free(&config->items[i]);
         }
@@ -5383,8 +4931,8 @@ extern "C"
         return default_val ? sv_from_cstr(default_val) : sv_new();
     }
 
-    // 2. Obtaining an integer (int) INI
-    int ini_get_int(const IniConfig *config, const char *section, const char *key, int default_val)
+    // 2. Obtaining an integer (s32) INI
+    s32 ini_get_int(const IniConfig *config, const char *section, const char *key, s32 default_val)
     {
         SV val = ini_get_sv(config, section, key, NULL);
         if (val.count == 0)
@@ -5392,28 +4940,28 @@ extern "C"
 
         // SV does not have a null terminator, so we copy it to a safe local buffer
         char buf[128] = zero;
-        size_t len = val.count < sizeof(buf) - 1 ? val.count : sizeof(buf) - 1;
+        usize len = val.count < sizeof(buf) - 1 ? val.count : sizeof(buf) - 1;
         memcpy(buf, val.data, len);
 
         return atoi(buf);
     }
 
-    // 3. Obtaining a number with a floating point (float) INI
-    float ini_get_float(const IniConfig *config, const char *section, const char *key, float default_val)
+    // 3. Obtaining a number with a floating point (f32) INI
+    f32 ini_get_float(const IniConfig *config, const char *section, const char *key, f32 default_val)
     {
         SV val = ini_get_sv(config, section, key, NULL);
         if (val.count == 0)
             return default_val;
 
         char buf[128] = zero;
-        size_t len = val.count < sizeof(buf) - 1 ? val.count : sizeof(buf) - 1;
+        usize len = val.count < sizeof(buf) - 1 ? val.count : sizeof(buf) - 1;
         memcpy(buf, val.data, len);
 
         return strtof(buf, NULL);
     }
 
     // 4. Getting the boolean value (true/1/yes) of the INI
-    int ini_get_bool(const IniConfig *config, const char *section, const char *key, int default_val)
+    s32 ini_get_bool(const IniConfig *config, const char *section, const char *key, s32 default_val)
     {
         SV val = ini_get_sv(config, section, key, NULL);
         if (val.count == 0)
@@ -5444,28 +4992,28 @@ extern "C"
 
     // Time utils fuctions Start ================================================================================================================
     // Повертає монотонний час у секундах з високою точністю (мікро/наносекунди)
-    double fds_time_now(void)
+    f64 fds_time_now(void)
     {
 #ifdef _WIN32
         if (fds_g_timer_frequency == 0.0)
         {
             LARGE_INTEGER freq;
             QueryPerformanceFrequency(&freq);
-            fds_g_timer_frequency = (double)freq.QuadPart;
+            fds_g_timer_frequency = (f64)freq.QuadPart;
         }
         LARGE_INTEGER counter;
         QueryPerformanceCounter(&counter);
-        return (double)counter.QuadPart / fds_g_timer_frequency;
+        return (f64)counter.QuadPart / fds_g_timer_frequency;
 #else
         struct timespec ts;
         // CLOCK_MONOTONIC гарантує, що час завжди йде тільки вперед
         clock_gettime(CLOCK_MONOTONIC, &ts);
-        return (double)ts.tv_sec + (double)ts.tv_nsec / 1000000000.0;
+        return (f64)ts.tv_sec + (f64)ts.tv_nsec / 1000000000.0;
 #endif
     }
 
     // Додаткова зручна функція для затримки (sleep) у мілісекундах
-    void fds_sleep_ms(int milliseconds)
+    void fds_sleep_ms(s32 milliseconds)
     {
 #ifdef _WIN32
         Sleep(milliseconds);
@@ -5480,25 +5028,25 @@ extern "C"
 
     // FDS files and folders fuctions Start ================================================================================================================
 
-    size_t fds_get_file_size(const char *filepath)
+    usize fds_get_file_size(const char *filepath)
     {
 #if defined(_WIN32) || defined(_WIN64)
         struct _stat64 st;
         if (_stat64(filepath, &st) != 0)
         {
-            return (size_t)-1; // Error (file not found or not accessible)
+            return (usize)-1; // Error (file not found or not accessible)
         }
 #else
         struct stat st;
         if (stat(filepath, &st) != 0)
         {
-            return (size_t)-1; // Error
+            return (usize)-1; // Error
         }
 #endif
-        return (size_t)st.st_size;
+        return (usize)st.st_size;
     }
 
-    int fds_file_read_to_arena(const char *filepath, FixedArena *arena, SV *out_sv)
+    s32 fds_file_read_to_arena(const char *filepath, FixedArena *arena, SV *out_sv)
     {
         if (!filepath || !arena || !out_sv)
             return 1;
@@ -5518,10 +5066,10 @@ extern "C"
         }
 
         /* We allocate memory in the arena (+1 for the null terminator, if you suddenly need it) */
-        char *buffer = (char *)fixed_arena_alloc(arena, (size_t)fsize + 1);
+        char *buffer = (char *)fixed_arena_alloc(arena, (usize)fsize + 1);
 
-        size_t read_bytes = fread(buffer, 1, (size_t)fsize, f);
-        if (read_bytes != (size_t)fsize && ferror(f))
+        usize read_bytes = fread(buffer, 1, (usize)fsize, f);
+        if (read_bytes != (usize)fsize && ferror(f))
         {
             fclose(f);
             return 1;
@@ -5536,7 +5084,7 @@ extern "C"
         return 0;
     }
 
-    int fds_file_read_to_sb(const char *filepath, SB *out_sb)
+    s32 fds_file_read_to_sb(const char *filepath, SB *out_sb)
     {
         if (!filepath || !out_sb)
             return 1;
@@ -5556,10 +5104,10 @@ extern "C"
         }
 
         /* We guarantee that SB will have enough space for the file */
-        sb_grow(out_sb, (size_t)fsize + 1);
+        sb_grow(out_sb, (usize)fsize + 1);
 
-        size_t read_bytes = fread(out_sb->items + out_sb->count, 1, (size_t)fsize, f);
-        if (read_bytes != (size_t)fsize && ferror(f))
+        usize read_bytes = fread(out_sb->items + out_sb->count, 1, (usize)fsize, f);
+        if (read_bytes != (usize)fsize && ferror(f))
         {
             fclose(f);
             return 1;
@@ -5572,7 +5120,7 @@ extern "C"
         return 0;
     }
 
-    int fds_file_write_sv(const char *filepath, SV content)
+    s32 fds_file_write_sv(const char *filepath, SV content)
     {
         if (!filepath)
             return 1;
@@ -5583,7 +5131,7 @@ extern "C"
 
         if (content.count > 0 && content.data)
         {
-            size_t written = fwrite(content.data, 1, content.count, f);
+            usize written = fwrite(content.data, 1, content.count, f);
             if (written != content.count)
             {
                 fclose(f);
@@ -5595,7 +5143,7 @@ extern "C"
         return 0;
     }
 
-    int fds_file_append_sv(const char *filepath, SV content)
+    s32 fds_file_append_sv(const char *filepath, SV content)
     {
         if (!filepath)
             return 1;
@@ -5606,7 +5154,7 @@ extern "C"
 
         if (content.count > 0 && content.data)
         {
-            size_t written = fwrite(content.data, 1, content.count, f);
+            usize written = fwrite(content.data, 1, content.count, f);
             if (written != content.count)
             {
                 fclose(f);
@@ -5619,14 +5167,14 @@ extern "C"
     }
 
     /* Returns 0 and writes the extension (no dot) to out_ext, or 1 if there is no extension */
-    int fds_path_extension(SV filepath, SV *out_ext)
+    s32 fds_path_extension(SV filepath, SV *out_ext)
     {
         if (!out_ext)
             return 1;
 
-        size_t dot_idx = sv_rfind_char(filepath, '.');
-        size_t slash_idx = sv_rfind_char(filepath, '/');   /* For Linux/compiler paths */
-        size_t bslash_idx = sv_rfind_char(filepath, '\\'); /* For Windows/Win32 API */
+        usize dot_idx = sv_rfind_char(filepath, '.');
+        usize slash_idx = sv_rfind_char(filepath, '/');   /* For Linux/compiler paths */
+        usize bslash_idx = sv_rfind_char(filepath, '\\'); /* For Windows/Win32 API */
 
         /* If there is no dot, or it is BEFORE the slash (for example, folder.a/file) */
         if (dot_idx == SIZE_MAX ||
@@ -5640,7 +5188,7 @@ extern "C"
         *out_ext = sv_from_parts(filepath.data + dot_idx + 1, filepath.count - dot_idx - 1);
         return 0;
     }
-    int fds_file_write_sb(const char *filepath, const SB *sb)
+    s32 fds_file_write_sb(const char *filepath, const SB *sb)
     {
         if (!filepath || !sb)
             return 1;
@@ -5648,7 +5196,7 @@ extern "C"
         return fds_file_write_sv(filepath, sb_to_sv(sb));
     }
 
-    int fds_file_append_sb(const char *filepath, const SB *sb)
+    s32 fds_file_append_sb(const char *filepath, const SB *sb)
     {
         if (!filepath || !sb)
             return 1;
@@ -5704,7 +5252,7 @@ extern "C"
             return NULL;
 
         /* We find out the required size of the buffer */
-        int req_len = MultiByteToWideChar(CP_UTF8, 0, utf8_str, -1, NULL, 0);
+        s32 req_len = MultiByteToWideChar(CP_UTF8, 0, utf8_str, -1, NULL, 0);
         if (req_len == 0)
             return NULL;
 
@@ -5717,7 +5265,7 @@ extern "C"
         MultiByteToWideChar(CP_UTF8, 0, utf8_str, -1, wstr, req_len);
         return wstr;
     }
-    int fds_file_delete_force(const char *filepath)
+    s32 fds_file_delete_force(const char *filepath)
     {
         if (!filepath)
             return 1;
@@ -5732,7 +5280,7 @@ extern "C"
          * This is often needed to remove files from folders like .git/ */
         SetFileAttributesW(wpath, FILE_ATTRIBUTE_NORMAL);
 
-        int result = (DeleteFileW(wpath) != 0) ? 0 : 1;
+        s32 result = (DeleteFileW(wpath) != 0) ? 0 : 1;
         FDS_FREE(wpath);
         return result;
 #else
@@ -5740,7 +5288,7 @@ extern "C"
         return fds_file_delete(filepath);
 #endif
     }
-    int fds_dir_delete_force(const char *dirpath)
+    s32 fds_dir_delete_force(const char *dirpath)
     {
         if (!dirpath)
             return 1;
@@ -5753,8 +5301,8 @@ extern "C"
         }
 
         SV item_name;
-        int is_dir;
-        int has_errors = 0;
+        s32 is_dir;
+        s32 has_errors = 0;
 
         /* We go through all the content */
         while (fds_dir_iter_next(&iter, &item_name, &is_dir) == 0)
@@ -5804,16 +5352,16 @@ extern "C"
             return 1;
 
         SetFileAttributesW(wdir, FILE_ATTRIBUTE_NORMAL);
-        int dir_result = (RemoveDirectoryW(wdir) != 0) ? 0 : 1;
+        s32 dir_result = (RemoveDirectoryW(wdir) != 0) ? 0 : 1;
         FDS_FREE(wdir);
 
         return (has_errors == 0 && dir_result == 0) ? 0 : 1;
 #else
-        int dir_result = fds_dir_delete(dirpath);
+        s32 dir_result = fds_dir_delete(dirpath);
         return (has_errors == 0 && dir_result == 0) ? 0 : 1;
 #endif
     }
-    int fds_file_delete(const char *filepath)
+    s32 fds_file_delete(const char *filepath)
     {
         if (!filepath)
             return 1;
@@ -5824,7 +5372,7 @@ extern "C"
         return 1;
     }
 
-    int fds_dir_delete(const char *dirpath)
+    s32 fds_dir_delete(const char *dirpath)
     {
         if (!dirpath)
             return 1;
@@ -5834,7 +5382,7 @@ extern "C"
         }
         return 1;
     }
-    int fds_dir_create(const char *dirpath)
+    s32 fds_dir_create(const char *dirpath)
     {
         if (!dirpath)
             return 1;
@@ -5850,7 +5398,7 @@ extern "C"
         return 1;
     }
 
-    int fds_rename(const char *oldpath, const char *newpath)
+    s32 fds_rename(const char *oldpath, const char *newpath)
     {
         if (!oldpath || !newpath)
             return 1;
@@ -5864,7 +5412,7 @@ extern "C"
 
         return 1;
     }
-    int fds_file_exists(const char *filepath)
+    s32 fds_file_exists(const char *filepath)
     {
         if (!filepath)
             return 1;
@@ -5875,7 +5423,7 @@ extern "C"
         return (attr & FILE_ATTRIBUTE_DIRECTORY) ? 1 : 0;
     }
 
-    int fds_dir_exists(const char *dirpath)
+    s32 fds_dir_exists(const char *dirpath)
     {
         if (!dirpath)
             return 1;
@@ -5886,7 +5434,7 @@ extern "C"
         return (attr & FILE_ATTRIBUTE_DIRECTORY) ? 0 : 1;
     }
 
-    int fds_dir_iter_open(const char *dirpath, FdsDirIter *iter)
+    s32 fds_dir_iter_open(const char *dirpath, FdsDirIter *iter)
     {
         if (!dirpath || !iter)
             return 1;
@@ -5912,7 +5460,7 @@ extern "C"
         return 0;
     }
 
-    int fds_dir_iter_next(FdsDirIter *iter, SV *out_name, int *out_is_dir)
+    s32 fds_dir_iter_next(FdsDirIter *iter, SV *out_name, s32 *out_is_dir)
     {
         if (!iter || !out_name)
             return 1;
@@ -5965,7 +5513,7 @@ extern "C"
 #include <unistd.h>
 #include <string.h>
 
-    int fds_file_delete(const char *filepath)
+    s32 fds_file_delete(const char *filepath)
     {
         if (!filepath)
             return 1;
@@ -5977,7 +5525,7 @@ extern "C"
         return 1;
     }
 
-    int fds_dir_delete(const char *dirpath)
+    s32 fds_dir_delete(const char *dirpath)
     {
         if (!dirpath)
             return 1;
@@ -5989,7 +5537,7 @@ extern "C"
         return 1;
     }
 
-    int fds_dir_create(const char *dirpath)
+    s32 fds_dir_create(const char *dirpath)
     {
         if (!dirpath)
             return 1;
@@ -5998,14 +5546,14 @@ extern "C"
         return 1;
     }
 
-    int fds_rename(const char *oldpath, const char *newpath)
+    s32 fds_rename(const char *oldpath, const char *newpath)
     {
         if (!oldpath || !newpath)
             return 1;
         return rename(oldpath, newpath) == 0 ? 0 : 1;
     }
 
-    int fds_file_exists(const char *filepath)
+    s32 fds_file_exists(const char *filepath)
     {
         if (!filepath)
             return 1;
@@ -6015,7 +5563,7 @@ extern "C"
         return S_ISREG(st.st_mode) ? 0 : 1;
     }
 
-    int fds_dir_exists(const char *dirpath)
+    s32 fds_dir_exists(const char *dirpath)
     {
         if (!dirpath)
             return 1;
@@ -6025,7 +5573,7 @@ extern "C"
         return S_ISDIR(st.st_mode) ? 0 : 1;
     }
 
-    int fds_dir_iter_open(const char *dirpath, FdsDirIter *iter)
+    s32 fds_dir_iter_open(const char *dirpath, FdsDirIter *iter)
     {
         if (!dirpath || !iter)
             return 1;
@@ -6040,7 +5588,7 @@ extern "C"
         return 0;
     }
 
-    int fds_dir_iter_next(FdsDirIter *iter, SV *out_name, int *out_is_dir)
+    s32 fds_dir_iter_next(FdsDirIter *iter, SV *out_name, s32 *out_is_dir)
     {
         if (!iter || !out_name)
             return 1;
@@ -6059,7 +5607,7 @@ extern "C"
 
             if (out_is_dir)
             {
-                int is_dir = (dir->d_type == DT_DIR);
+                s32 is_dir = (dir->d_type == DT_DIR);
                 if (dir->d_type == DT_UNKNOWN || dir->d_type == DT_LNK)
                 {
                     const char *base = (const char *)iter->internal_find_data;
@@ -6110,7 +5658,7 @@ extern "C"
         return (void *)((char *)h + HEADER_SIZE);
     }
 
-    static block_header *raw_alloc_block(fds_allocator *owner, size_t size)
+    static block_header *raw_alloc_block(fds_allocator *owner, usize size)
     {
         if (size > SIZE_MAX - HEADER_SIZE)
             return NULL;
@@ -6203,7 +5751,7 @@ extern "C"
     }
 #endif
 
-    static void *alloc_internal(fds_allocator *a, size_t size, const char *file, int line, int is_permanent)
+    static void *alloc_internal(fds_allocator *a, usize size, const char *file, s32 line, s32 is_permanent)
     {
         if (!a)
             a = fds_allocator_current();
@@ -6235,23 +5783,23 @@ extern "C"
 
         return ptr_from_header(h);
     }
-    void *fds_alloc_impl(fds_allocator *a, size_t size)
+    void *fds_alloc_impl(fds_allocator *a, usize size)
     {
         return alloc_internal(a, size, NULL, 0, 0);
     }
 
-    void *fds_calloc_impl(fds_allocator *a, size_t num, size_t size)
+    void *fds_calloc_impl(fds_allocator *a, usize num, usize size)
     {
         if (!a)
             a = fds_allocator_current();
-        size_t total = num * size;
+        usize total = num * size;
         void *ptr = alloc_internal(a, total, NULL, 0, 0);
         if (ptr)
             memset(ptr, 0, total);
         return ptr;
     }
 
-    void *fds_realloc_impl(fds_allocator *a, void *ptr, size_t new_size)
+    void *fds_realloc_impl(fds_allocator *a, void *ptr, usize new_size)
     {
         if (ptr == NULL)
             return alloc_internal(a, new_size, NULL, 0, 0);
@@ -6346,7 +5894,7 @@ extern "C"
         raw_free_block(h);
     }
 
-    void *fds_alloc_tmp_impl(fds_allocator *a, size_t size)
+    void *fds_alloc_tmp_impl(fds_allocator *a, usize size)
     {
         if (!a)
             a = fds_allocator_current();
@@ -6385,28 +5933,28 @@ extern "C"
         list_push((block_header **)&a->tmp_active, h);
         return ptr_from_header(h);
     }
-    void *fds_alloc_permanent_impl(fds_allocator *a, size_t size)
+    void *fds_alloc_permanent_impl(fds_allocator *a, usize size)
     {
         return alloc_internal(a, size, NULL, 0, 1);
     }
 #ifdef DEBUG_MEM
-    void *fds_alloc_impl_tracked(fds_allocator *a, size_t size, const char *file, int line)
+    void *fds_alloc_impl_tracked(fds_allocator *a, usize size, const char *file, s32 line)
     {
         return alloc_internal(a, size, file, line, 0);
     }
 
-    void *fds_calloc_impl_tracked(fds_allocator *a, size_t num, size_t size, const char *file, int line)
+    void *fds_calloc_impl_tracked(fds_allocator *a, usize num, usize size, const char *file, s32 line)
     {
         if (!a)
             a = fds_allocator_current();
-        size_t total = num * size;
+        usize total = num * size;
         void *ptr = alloc_internal(a, total, file, line, 0);
         if (ptr)
             memset(ptr, 0, total);
         return ptr;
     }
 
-    void *fds_realloc_impl_tracked(fds_allocator *a, void *ptr, size_t new_size, const char *file, int line)
+    void *fds_realloc_impl_tracked(fds_allocator *a, void *ptr, usize new_size, const char *file, s32 line)
     {
         if (ptr == NULL)
             return alloc_internal(a, new_size, file, line, 0);
@@ -6424,7 +5972,7 @@ extern "C"
         if (!owner)
             return NULL;
 
-        size_t old_size = h->size;
+        usize old_size = h->size;
         if (h->is_tmp)
         {
             list_remove((block_header **)&owner->tmp_active, h);
@@ -6484,7 +6032,7 @@ extern "C"
         return ptr_from_header(new_h);
     }
 
-    void *fds_alloc_tmp_impl_tracked(fds_allocator *a, size_t size, const char *file, int line)
+    void *fds_alloc_tmp_impl_tracked(fds_allocator *a, usize size, const char *file, s32 line)
     {
         if (!a)
             a = fds_allocator_current();
@@ -6507,7 +6055,7 @@ extern "C"
             indirect = &(*indirect)->next;
         }
 
-        int new_block_created = 0;
+        s32 new_block_created = 0;
         if (!h)
         {
             h = raw_alloc_block(a, size);
@@ -6539,7 +6087,7 @@ extern "C"
         return ptr_from_header(h);
     }
 
-    void *fds_alloc_permanent_impl_tracked(fds_allocator *a, size_t size, const char *file, int line)
+    void *fds_alloc_permanent_impl_tracked(fds_allocator *a, usize size, const char *file, s32 line)
     {
         return alloc_internal(a, size, file, line, 1);
     }
@@ -6568,7 +6116,7 @@ extern "C"
 
 #ifdef DEBUG_MEM
         block_header *h_leak = (block_header *)a->all_blocks;
-        int leak_count = 0;
+        s32 leak_count = 0;
         fprintf(stderr, "=== Leak report for allocator %p ===\n", (void *)a);
         while (h_leak)
         {
@@ -6592,7 +6140,7 @@ extern "C"
 #endif
 
         void *lists[] = {a->all_blocks, a->tmp_active, a->tmp_free};
-        for (int i = 0; i < 3; i++)
+        for (s32 i = 0; i < 3; i++)
         {
             block_header *curr = (block_header *)lists[i];
             while (curr)
@@ -6610,7 +6158,7 @@ extern "C"
 
     static FDS_THREAD_LOCAL fds_allocator *tls_current_allocator = NULL;
     static FDS_THREAD_LOCAL fds_allocator *tls_alloc_stack[FDS_MAX_ALLOC_STACK];
-    static FDS_THREAD_LOCAL int tls_alloc_stack_depth = 0;
+    static FDS_THREAD_LOCAL s32 tls_alloc_stack_depth = 0;
 
     fds_allocator *fds_allocator_current(void)
     {
@@ -6647,7 +6195,7 @@ extern "C"
         }
     }
 
-    size_t fds_allocator_live_blocks_count(fds_allocator *a)
+    usize fds_allocator_live_blocks_count(fds_allocator *a)
     {
         if (!a)
             a = fds_allocator_current();
@@ -6703,13 +6251,13 @@ extern "C"
             arg = "";
 
 #ifdef _WIN32
-        size_t extra = 2;
+        usize extra = 2;
         for (const char *p = arg; *p; ++p)
         {
             if (*p == '"')
                 extra++;
         }
-        size_t n = strlen(arg);
+        usize n = strlen(arg);
         char *out = (char *)FDS_MALLOC(n + extra + 1);
         if (!out)
             return NULL;
@@ -6725,13 +6273,13 @@ extern "C"
         *w = '\0';
         return out;
 #else
-        size_t extra = 2;
+        usize extra = 2;
         for (const char *p = arg; *p; ++p)
         {
             if (*p == '\'')
                 extra += 3;
         }
-        size_t n = strlen(arg);
+        usize n = strlen(arg);
         char *out = (char *)FDS_MALLOC(n + extra + 1);
         if (!out)
             return NULL;
@@ -6761,7 +6309,7 @@ extern "C"
             return str_dup("");
 
         StringArray quoted = zero;
-        for (size_t i = 0; i < cmd->size; ++i)
+        for (usize i = 0; i < cmd->size; ++i)
         {
             char *q = fds_shell_quote(cmd->data[i]);
             if (!q)
@@ -6829,7 +6377,7 @@ extern "C"
 #endif
     }
 
-    int fds_needs_rebuild(const char *output_path, const char *input_path)
+    s32 fds_needs_rebuild(const char *output_path, const char *input_path)
     {
         if (!output_path || !input_path)
             return -1;
@@ -6845,15 +6393,15 @@ extern "C"
         return in_mtime > out_mtime ? 1 : 0;
     }
 
-    int fds_needs_rebuild_many(const char *output_path, const char *const *inputs, size_t input_count)
+    s32 fds_needs_rebuild_many(const char *output_path, const char *const *inputs, usize input_count)
     {
         if (!output_path || !inputs)
             return -1;
 
         time_t out_mtime = fds_get_file_mtime(output_path);
-        int out_missing = (out_mtime == (time_t)-1);
+        s32 out_missing = (out_mtime == (time_t)-1);
 
-        for (size_t i = 0; i < input_count; ++i)
+        for (usize i = 0; i < input_count; ++i)
         {
             if (!inputs[i])
                 return -1;
@@ -6866,7 +6414,7 @@ extern "C"
         return 0;
     }
 
-    int fds_mkdir_if_not_exists(const char *dirpath)
+    s32 fds_mkdir_if_not_exists(const char *dirpath)
     {
         if (!dirpath)
             return 1;
@@ -6875,12 +6423,12 @@ extern "C"
         return fds_dir_create(dirpath);
     }
 
-    static void fds_resolve_binary_path(const char *argv0, char *out, size_t out_sz)
+    static void fds_resolve_binary_path(const char *argv0, char *out, usize out_sz)
     {
         snprintf(out, out_sz, "%s", argv0 ? argv0 : "");
 #ifdef _WIN32
-        size_t n = strlen(out);
-        int has_exe = (n >= 4 && _stricmp(out + n - 4, ".exe") == 0);
+        usize n = strlen(out);
+        s32 has_exe = (n >= 4 && _stricmp(out + n - 4, ".exe") == 0);
         if (!has_exe)
         {
             char with_exe[1024];
@@ -6891,12 +6439,12 @@ extern "C"
 #endif
     }
 
-    static void fds_restart_self(int argc, char **argv, const char *binary_path)
+    static void fds_restart_self(s32 argc, char **argv, const char *binary_path)
     {
 #ifdef _WIN32
         StringArray restart = zero;
         sa_push(&restart, binary_path);
-        for (int i = 1; i < argc; ++i)
+        for (s32 i = 1; i < argc; ++i)
             sa_push(&restart, argv[i]);
 
         char *line = fds_cmd_render(&restart);
@@ -6924,13 +6472,13 @@ extern "C"
         GetExitCodeProcess(pi.hProcess, &code);
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
-        exit((int)code);
+        exit((s32)code);
 #else
-        char **new_argv = (char **)FDS_MALLOC((size_t)(argc + 1) * sizeof(char *));
+        char **new_argv = (char **)FDS_MALLOC((usize)(argc + 1) * sizeof(char *));
         if (!new_argv)
             exit(1);
         new_argv[0] = (char *)binary_path;
-        for (int i = 1; i < argc; ++i)
+        for (s32 i = 1; i < argc; ++i)
             new_argv[i] = argv[i];
         new_argv[argc] = NULL;
         execv(binary_path, new_argv);
@@ -6939,7 +6487,7 @@ extern "C"
 #endif
     }
 
-    void fds_go_rebuild_urself(int argc, char **argv, const char *source_path)
+    void fds_go_rebuild_urself(s32 argc, char **argv, const char *source_path)
     {
         if (!argv || !argv[0] || !source_path)
             return;
@@ -6948,7 +6496,7 @@ extern "C"
         fds_resolve_binary_path(argv[0], binary_path, sizeof(binary_path));
 
         const char *inputs[1] = {source_path};
-        int rebuild = fds_needs_rebuild_many(binary_path, inputs, 1);
+        s32 rebuild = fds_needs_rebuild_many(binary_path, inputs, 1);
 
         if (rebuild < 0)
         {
@@ -6982,9 +6530,9 @@ extern "C"
         fds_log(FINFO, "rebuilding %s", binary_path);
         fds_cmd_result res = fds_cmd_run_sa(&cmd);
         if (res.stdout_len != 0)
-            fds_log(FINFO, "%.*s", res.stdout_len, res.stdout_data);
+            fds_log(FINFO, "%.*s", (s32)res.stdout_len, res.stdout_data);
         if (res.stderr_len > 0)
-            fds_log(FINFO, "%.*s", res.stderr_data, res.stderr_data);
+            fds_log(FINFO, "%.*s", (s32)res.stderr_len, res.stderr_data);
         sa_free(&cmd);
 
         if (!res.success || res.exit_code != 0)
