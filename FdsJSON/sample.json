@@ -1,0 +1,13 @@
+{
+  "name": "FdsJSON",
+  "version": 1,
+  "ok": true,
+  "empty": null,
+  "tags": [
+    "parse",
+    "stringify"
+  ],
+  "point": {
+    "x": 3.5
+  }
+}
