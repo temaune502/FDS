@@ -1,0 +1,13 @@
+{
+    "C_Cpp.default.compilerPath": "e:\\msys\\ucrt64\\bin\\gcc.exe",
+    "window.experimental.windowControlsOverlay.roundedCorners": false,
+    "workbench.experimental.share.enabled": false,
+    "workbench.experimental.useNewLayout": false,
+    "files.associations": {
+        "*.c": "c",
+        "*.h": "c"
+    },
+    "C_Cpp.autoAddFileAssociations": false
+    
+    
+}

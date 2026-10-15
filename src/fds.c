@@ -179,3 +179,9 @@ int main(void) {
     printf("Усі тести пройдено успішно!\n");
     return 0;
 }
+
+
+
+
+  git config --global user.email "you@example.com"
+  git config --global user.name "Your Name"

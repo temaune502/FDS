@@ -4865,7 +4865,7 @@ typedef intptr_t  iptr;
             return 1;
         }
 
-        buffer[read_bytes] = '\0'; /* For C-string compatibility if you have to */
+        buffer[read_bytes] = '\0';
 
         out_sv->data = buffer;
         out_sv->count = read_bytes;
@@ -4904,7 +4904,7 @@ typedef intptr_t  iptr;
         }
 
         out_sb->count += read_bytes;
-        out_sb->items[out_sb->count] = '\0'; /* Secure zero-termination */
+        out_sb->items[out_sb->count] = '\0';
 
         fclose(f);
         return 0;
