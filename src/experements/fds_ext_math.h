@@ -32,9 +32,16 @@
 
 // --- Базові структури ---
 
+
 typedef struct {
     uint32_t state;
 } FdsRng;
+
+// Fast PRNG (Xorshift32)
+typedef struct
+{
+    uint32_t state;
+} SloppyRNG;
 
 typedef struct { float x, y; } FdsVec2;
 typedef struct { float x, y, z; } FdsVec3;
@@ -114,6 +121,22 @@ FDS_MATH_DEF FdsVec2  fds_closest_point_aabb(FdsAABB aabb, FdsVec2 p);
 FDS_MATH_DEF bool     fds_overlap_aabb(FdsAABB a, FdsAABB b);
 FDS_MATH_DEF bool     fds_overlap_circle(FdsCircle a, FdsCircle b);
 FDS_MATH_DEF bool     fds_overlap_aabb_circle(FdsAABB aabb, FdsCircle circle);
+
+
+static inline float sloppy_rand_bell(SloppyRNG *rng, float min, float max);
+static inline float sloppy_jitter(SloppyRNG *rng, float val, float amount);
+static inline bool sloppy_chance(SloppyRNG *rng, float probability);
+static inline float sloppy_rand_range(SloppyRNG *rng, float min, float max);
+static inline float sloppy_rand01(SloppyRNG *rng);
+static inline uint32_t sloppy_rng_next(SloppyRNG *rng);
+static inline SloppyRNG sloppy_rng_init(uint32_t seed);
+static inline float sloppy_snap(float val, float step);
+static inline int sloppy_sign(float val, float deadzone);
+static inline bool sloppy_between(float val, float min, float max, float margin);
+static inline bool sloppy_eq_rel(float a, float b, float rel_eps);
+static inline bool sloppy_eq(float a, float b, float max_diff);
+
+
 
 #ifdef __cplusplus
 }
@@ -372,6 +395,92 @@ FDS_MATH_DEF bool fds_overlap_aabb_circle(FdsAABB aabb, FdsCircle circle) {
     float dist_sq = fds_vec2_length_sq(diff);
     
     return dist_sq <= (circle.radius * circle.radius);
+}
+
+static inline bool sloppy_eq(float a, float b, float max_diff)
+{
+    return fabsf(a - b) <= max_diff;
+}
+
+
+static inline bool sloppy_eq_rel(float a, float b, float rel_eps)
+{
+    float diff = fabsf(a - b);
+    float largest = fmaxf(fabsf(a), fabsf(b));
+    return diff <= largest * rel_eps;
+}
+
+
+static inline bool sloppy_between(float val, float min, float max, float margin)
+{
+    return val >= (min - margin) && val <= (max + margin);
+}
+
+
+static inline int sloppy_sign(float val, float deadzone)
+{
+    if (fabsf(val) <= deadzone)
+        return 0;
+    return (val > 0.0f) - (val < 0.0f);
+}
+
+static inline float sloppy_snap(float val, float step)
+{
+    if (step <= 0.0f)
+        return val;
+    return roundf(val / step) * step;
+}
+
+// ============================================================================
+//  		SLOPPY RANDOM
+// ============================================================================
+
+static inline SloppyRNG sloppy_rng_init(uint32_t seed)
+{
+    SloppyRNG rng = {seed ? seed : 0xACE1u};
+    return rng;
+}
+
+static inline uint32_t sloppy_rng_next(SloppyRNG *rng)
+{
+    uint32_t x = rng->state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    return rng->state = x;
+}
+
+
+static inline float sloppy_rand01(SloppyRNG *rng)
+{
+    return (float)(sloppy_rng_next(rng) & 0xFFFFFF) / 16777215.0f;
+}
+
+
+static inline float sloppy_rand_range(SloppyRNG *rng, float min, float max)
+{
+    return min + sloppy_rand01(rng) * (max - min);
+}
+
+
+static inline bool sloppy_chance(SloppyRNG *rng, float probability)
+{
+    return sloppy_rand01(rng) < probability;
+}
+
+
+static inline float sloppy_jitter(SloppyRNG *rng, float val, float amount)
+{
+    return val + sloppy_rand_range(rng, -amount, amount);
+}
+
+
+static inline float sloppy_rand_bell(SloppyRNG *rng, float min, float max)
+{
+    float u1 = sloppy_rand_range(rng, min, max);
+    float u2 = sloppy_rand_range(rng, min, max);
+    float u3 = sloppy_rand_range(rng, min, max);
+    return (u1 + u2 + u3) / 3.0f;
 }
 
 #endif // FDS_EXT_MATH_IMPLEMENTATION

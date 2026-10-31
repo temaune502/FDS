@@ -5,8 +5,8 @@
 //                                              FDS
 //      Author: temaune(Arti Elorian)
 //      This is my library with different useful featurs made only for my project.
-//
-//
+//      
+//	Version: 0.0.1
 //
 //
 //
@@ -121,6 +121,11 @@ typedef intptr_t  iptr;
         fprintf(stderr, "\n");                                                \
     } while (0)
 
+#define FDS_UNIMPLEMENTED() \
+    fds_log(FFATAL, "unimplemented: %s", __func__)
+#define FDS_UNREACHABLE() \
+    fds_log(FFATAL,"unreachable reached: %s:%d", __FILE__, __LINE__)
+
 #define fds_unused(e) (void)(e)
 
 #define fds_da_write(filepath, da) \
@@ -197,6 +202,16 @@ typedef intptr_t  iptr;
 
 //   Macro for loging
 #define fds_log(level, ...) fds_log_impl(level, __FILE__, __LINE__, __func__, __VA_ARGS__)
+
+// ANSI colors for logger
+#define CLR_RESET   "\x1b[0m"
+#define CLR_RED     "\x1b[31m"
+#define CLR_GREEN   "\x1b[32m"
+#define CLR_YELLOW  "\x1b[33m"
+#define CLR_BLUE    "\x1b[34m"
+#define CLR_MAGENTA "\x1b[35m"
+#define CLR_CYAN    "\x1b[36m"
+#define CLR_GRAY    "\x1b[90m"
 
 #ifdef _WIN32
 #define FDS_ISATTY _isatty
@@ -331,6 +346,32 @@ typedef intptr_t  iptr;
     typedef usize FixedArenaMark;
 
     //=======================================================
+    //                     Growing Arena
+    //=======================================================
+    typedef struct GrowingArenaBlock GrowingArenaBlock;
+
+    struct GrowingArenaBlock
+    {
+        unsigned char *data;
+        size_t offset;
+        size_t capacity;
+        GrowingArenaBlock *next;
+    };
+
+    typedef struct
+    {
+        GrowingArenaBlock *first;
+        GrowingArenaBlock *current;
+        size_t initial_capacity;
+    } GrowingArena;
+
+    typedef struct
+    {
+        GrowingArenaBlock *block;
+        size_t offset;
+    } GrowingArenaMark;
+
+    //=======================================================
     //          INI parser structs
     //=======================================================
     // A structure for storing an INI key-value pair
@@ -436,6 +477,22 @@ typedef intptr_t  iptr;
         usize stdout_len; // Довжина виводу
         usize stderr_len; // Довжина помилок
     } fds_cmd_result;
+
+
+    ///////////////////////////////////////////// 
+    ////               Compression        ///////
+    /////////////////////////////////////////////
+    typedef struct {
+        void (*log)(const char* fmt, ...);
+        void (*info)(const char* fmt, ...);
+        void (*warn)(const char* fmt, ...);
+        void (*error)(const char* fmt, ...);
+        void (*debug)(const char* fmt, ...);
+        void (*newline)(void);
+
+        void (*setLevel)(fds_log_level level);
+        void (*setFile)(const char* path);
+    } FdsConsole;
 
 
     /////////////////////////////////////////////
@@ -774,6 +831,19 @@ typedef intptr_t  iptr;
     // Logging fuctions Start ================================================================================================================
     static inline bool fds_should_use_color(FILE *stream);
     void fds_log_impl(fds_log_level level, const char *file, s32 line, const char *func, const char *fmt, ...);
+
+    static void print_indent  (const char* meta_color, const char* reset);
+    static void impl_newline  (void);
+    static void impl_set_file (const char* path);
+    static void impl_set_level(fds_log_level level);
+
+    static void impl_debug(const char* fmt, ...);
+    static void impl_error(const char* fmt, ...);
+    static void impl_warn (const char* fmt, ...);
+    static void impl_info (const char* fmt, ...);
+    static void impl_log  (const char* fmt, ...);
+
+    static void core_log(fds_log_level level, const char* level_str, const char* base_color, const char* fmt, va_list args);
     // Logging fuctions End ================================================================================================================
 
     // Console utils fuctions Start ================================================================================================================
@@ -790,14 +860,14 @@ typedef intptr_t  iptr;
     // Flag parser fuctions Start ================================================================================================================
 
     FlagSet *flagset_new(void);
-    void flagset_free(FlagSet *fs);
-    void flagset_var(FlagSet *fs, FlagType type, void *ptr, const char *name, const char *defval, const char *usage);
-    void flagset_required(FlagSet *fs); // marks the last added checkbox as required
+    void     flagset_free(FlagSet *fs);
+    void     flagset_var(FlagSet *fs, FlagType type, void *ptr, const char *name, const char *defval, const char *usage);
+    void     flagset_required(FlagSet *fs); // marks the last added checkbox as required
 
-    void flagset_parse(FlagSet *fs, s32 argc, char **argv);
-    usize flagset_narg(FlagSet *fs);
-    SV flagset_arg(FlagSet *fs, usize i);
-    void flagset_usage(FlagSet *fs);
+    void     flagset_parse(FlagSet *fs, s32 argc, char **argv);
+    usize    flagset_narg(FlagSet *fs);
+    SV       flagset_arg(FlagSet *fs, usize i);
+    void     flagset_usage(FlagSet *fs);
     static Flag *find_flag(FlagSet *fs, SV name);
     static void set_flag_value(Flag *f, SV val);
 
@@ -846,9 +916,7 @@ typedef intptr_t  iptr;
     void sa_reverse(StringArray *sa);
     // Sort the array. If cmp == NULL, strcmp() is used.
     void sa_sort(StringArray *sa, s32 (*cmp)(const void *, const void *));
-    //============================================================
-    // Conclusion
-    // ============================================================
+ 
     bool sa_pushf(StringArray *sa, const char *fmt, ...);
     // Just print the array, each line on a new line (or with a prefix).
 
@@ -902,23 +970,23 @@ typedef intptr_t  iptr;
     bool fds_read_entire_file(const char *filepath, char **out_data, usize *out_size);
 
     FdsFile fds_file_open(const char *path, u32 flags);
-    void fds_file_close(FdsFile *file);
+    void  fds_file_close(FdsFile *file);
 
     usize fds_file_read(FdsFile file, void *dst, usize size);
     usize fds_file_write(FdsFile file, const void *src, usize size);
 
-    bool fds_file_seek(FdsFile file, s64 offset, FdsSeekOrigin origin);
-    s64 fds_file_tell(FdsFile file);
-    s64 fds_file_size(FdsFile file);
-    void fds_file_flush(FdsFile file);
+    bool  fds_file_seek(FdsFile file, s64 offset, FdsSeekOrigin origin);
+    s64   fds_file_tell(FdsFile file);
+    s64   fds_file_size(FdsFile file);
+    void  fds_file_flush(FdsFile file);
 
     char *fds_file_read_str(FdsFile file, void *(*allocator)(usize));
-    bool fds_file_write_str(FdsFile file, const char *str);
+    bool  fds_file_write_str(FdsFile file, const char *str);
 
-    bool fds_file_skip(FdsFile file, s64 bytes_to_skip);
+    bool  fds_file_skip(FdsFile file, s64 bytes_to_skip);
 
-    bool fds_file_check_magic(FdsFile *file, const char expected_magic[4], u32 min_version);
-    bool fds_file_write_magic(FdsFile *file, const char magic[4], u32 version);
+    bool  fds_file_check_magic(FdsFile *file, const char expected_magic[4], u32 min_version);
+    bool  fds_file_write_magic(FdsFile *file, const char magic[4], u32 version);
 
 
     // File fuctions End================================================================================================================
@@ -1036,10 +1104,37 @@ typedef intptr_t  iptr;
 
     // Fixed arena fuctions End ================================================================================================================
 
+
+    // Growing arena fuctions Start ==============================================================================================================
+    GrowingArena growing_arena_create(size_t initial_capacity);
+    void growing_arena_free(GrowingArena *arena);
+    void growing_arena_reset(GrowingArena *arena);
+    size_t growing_arena_used(const GrowingArena *arena);
+    size_t growing_arena_capacity(const GrowingArena *arena);
+    size_t growing_arena_available(const GrowingArena *arena);
+    int growing_arena_is_empty(const GrowingArena *arena);
+    int growing_arena_contains(const GrowingArena *arena, const void *ptr);
+    GrowingArenaMark growing_arena_mark(const GrowingArena *arena);
+    void growing_arena_restore(GrowingArena *arena, GrowingArenaMark mark);
+    void *growing_arena_alloc_align(GrowingArena *arena, size_t size, size_t alignment);
+    void *growing_arena_alloc(GrowingArena *arena, size_t size);
+    void *growing_arena_alloc_zero(GrowingArena *arena, size_t size);
+    void *growing_arena_alloc_array(GrowingArena *arena, size_t count, size_t element_size);
+    void *growing_arena_memdup(GrowingArena *arena, const void *src, size_t size);
+    char *growing_arena_strndup(GrowingArena *arena, const char *str, size_t len);
+    char *growing_arena_strdup(GrowingArena *arena, const char *str);
+    // Growing arena fuctions End ================================================================================================================
+
+
+
     // Files and folders fuctions Start ================================================================================================================
     usize fds_get_file_size(const char *filepath);
 
     s32 fds_file_read_to_arena(const char *filepath, FixedArena *arena, SV *out_sv);
+    
+    //TODO: Implenent this function!
+    //s32 fds_file_read_to_growing_arena(const char *filepath, FixedArena *arena, SV *out_sv);
+
     s32 fds_file_read_to_sb(const char *filepath, SB *out_sb);
     s32 fds_file_write_sv(const char *filepath, SV content);
     s32 fds_file_append_sv(const char *filepath, SV content);
@@ -1084,27 +1179,29 @@ typedef intptr_t  iptr;
 
     // Procs fuctions Start ================================================================================================================
 
+    //Run procces and gets evething what proccess put into stdout
     s32 fds_cmd_run_Simp(const char *cmd_utf8, char **out_output);
-    fds_cmd_result fds_cmd_run_ext(const char *cmd_utf8);
-    void fds_cmd_result_free(fds_cmd_result *res);
-    static void fds_append_pipe_data(char **buffer, usize *len, usize *cap, const char *chunk, usize chunk_size);
-    char *fds_cmd_render(const StringArray *cmd);
-    fds_cmd_result fds_cmd_run_sa(const StringArray *cmd);
-    bool fds_cmd_run_detached(const char *cmd_utf8);
-    s32 fds_needs_rebuild(const char *output_path, const char *input_path);
-    s32 fds_needs_rebuild_many(const char *output_path, const char *const *inputs, usize input_count);
-    s32 fds_mkdir_if_not_exists(const char *dirpath);
-    void fds_go_rebuild_urself(s32 argc, char **argv, const char *source_path);
 
-    static inline const char *fds_shift_args(s32 *argc, char ***argv)
-    {
-        if (!argc || !argv || *argc <= 0 || !*argv)
-            return NULL;
-        const char *result = (*argv)[0];
-        (*argc)--;
-        (*argv)++;
-        return result;
-    }
+    //Run procces and gets pointer to stdout stdin stderr file descryptors
+    fds_cmd_result fds_cmd_run_ext(const char *cmd_utf8);
+    
+    void fds_cmd_result_free(fds_cmd_result *res);
+    
+    static void fds_append_pipe_data(char **buffer, usize *len, usize *cap, const char *chunk, usize chunk_size);
+    
+    char *fds_cmd_render(const StringArray *cmd);
+    
+    fds_cmd_result fds_cmd_run_sa(const StringArray *cmd);
+    
+    bool fds_cmd_run_detached(const char *cmd_utf8);
+    
+    s32 fds_needs_rebuild(const char *output_path, const char *input_path);
+    
+    s32 fds_needs_rebuild_many(const char *output_path, const char *const *inputs, usize input_count);
+    
+    s32 fds_mkdir_if_not_exists(const char *dirpath);
+    
+    void fds_go_rebuild_urself(s32 argc, char **argv, const char *source_path);
 
     // Procs fuctions End ================================================================================================================
 
@@ -1184,6 +1281,10 @@ typedef intptr_t  iptr;
 #include <sys/wait.h>
 #endif
 
+
+/////////////////////////////////////////////////////////////
+/////////////        GLOBALS                  ///////////////
+/////////////////////////////////////////////////////////////
 #ifdef _WIN32
     static f64 fds_g_timer_frequency = 0.0;
 #endif
@@ -1193,12 +1294,47 @@ typedef intptr_t  iptr;
     FDS_THREAD_LOCAL FixedArena temp_arena_instance = zero;
     FDS_THREAD_LOCAL s32 temp_arena_initialized = 0;
 
+    FDS_THREAD_LOCAL static FdsConsole console = {
+    .log      = impl_log,
+    .info     = impl_info,
+    .warn     = impl_warn,
+    .error    = impl_error,
+    .debug    = impl_debug,
+    .newline  = impl_newline,
+    .setLevel = impl_set_level,
+    .setFile  = impl_set_file
+};
+typedef struct {
+    int indent_level;
+    fds_log_level min_level;
+    
+    FILE* log_file;
+} FdsLoggerState; 
+FDS_THREAD_LOCAL FdsLoggerState g_state = {
+    .indent_level = 0,
+    .min_level = FINFO,
+    .log_file = NULL
+};
+/////////////////////////////////////////////////////////////
+/////////////        GLOBALS END                  ///////////
+/////////////////////////////////////////////////////////////
+
     static inline s32 safe_add(usize a, usize b, usize *res)
     {
         if (a > SIZE_MAX - b)
             return 0;
         *res = a + b;
         return 1;
+    }
+
+    static inline const char *fds_shift_args(s32 *argc, char ***argv)
+    {
+        if (!argc || !argv || *argc <= 0 || !*argv)
+            return NULL;
+        const char *result = (*argv)[0];
+        (*argc)--;
+        (*argv)++;
+        return result;
     }
 
     // Loging functions Start ================================================================================================================
@@ -1278,6 +1414,97 @@ typedef intptr_t  iptr;
         {
             exit(69);
         }
+    }
+
+    // Advanced logger fucntions
+    static void core_log(fds_log_level level, const char* level_str, const char* base_color, const char* fmt, va_list args) {
+        if (level < g_state.min_level) return; 
+        const char *color = base_color;
+        const char *reset = "";
+        const char *meta_color = "";
+        FILE *stream = stdout;
+
+        if (fds_should_use_color(stream)) {
+            reset = "\x1b[0m";
+            meta_color = "\x1b[90m";
+        } else {
+            color = "";
+            reset = "";
+            meta_color = "";
+        }
+
+        va_list args_copy;
+        va_copy(args_copy, args);
+        int len = vsnprintf(NULL, 0, fmt, args_copy);
+        va_end(args_copy);
+        FixedArenaMark mark = temp_mark();
+        char* msg = (char*)fixed_arena_alloc(temp_arena_get(),len + 1);
+        vsnprintf(msg, len + 1, fmt, args);
+
+        while (len > 0 && (msg[len-1] == '\n' || msg[len-1] == '\r')) {
+            msg[--len] = '\0';
+        }
+
+        time_t t = time(NULL);
+        struct tm tm_info = *localtime(&t);
+
+        print_indent(meta_color, reset);
+        printf("%s[%02d:%02d:%02d] [%s]%s ", 
+            meta_color, tm_info.tm_hour, tm_info.tm_min, tm_info.tm_sec, 
+            level_str, reset);
+        printf("%s%s%s\n", color, msg, reset);
+
+        if (g_state.log_file) {
+            fprintf(g_state.log_file, "[%02d:%02d:%02d] [%s] %s\n", 
+                    tm_info.tm_hour, tm_info.tm_min, tm_info.tm_sec, level_str, msg);
+            fflush(g_state.log_file);
+        }
+        temp_restore(mark);
+    }
+
+    static void impl_log(const char* fmt, ...) {
+        va_list args; 
+        va_start(args, fmt);
+        core_log(FINFO, "LOG", CLR_CYAN, fmt, args);
+        va_end(args);
+    }
+
+    static void impl_info(const char* fmt, ...) {
+        va_list args;
+        va_start(args, fmt);
+        core_log(FINFO, "INFO", CLR_BLUE, fmt, args);
+        va_end(args);
+    }
+
+    static void impl_warn(const char* fmt, ...) {
+        va_list args; va_start(args, fmt);
+        core_log(FWARN, "WARN", CLR_YELLOW, fmt, args);
+        va_end(args);
+    }
+
+    static void impl_error(const char* fmt, ...) {
+        va_list args; va_start(args, fmt);
+        core_log(FERROR, "ERROR", CLR_RED, fmt, args);
+        va_end(args);
+    }
+
+    static void impl_debug(const char* fmt, ...) {
+        va_list args; va_start(args, fmt);
+        core_log(FDEBUG, "DEBUG", CLR_GRAY, fmt, args);
+        va_end(args);
+    }
+
+    static void impl_set_level(fds_log_level level) { g_state.min_level = level; }
+    static void impl_set_file(const char* path) { 
+        if (g_state.log_file) fclose(g_state.log_file);
+        g_state.log_file = fopen(path, "w"); 
+    }
+    static void impl_newline(void) {
+        printf("\n");
+    }
+
+    static void print_indent(const char* meta_color, const char* reset) {
+    for (int i = 0; i < g_state.indent_level; i++) printf("%s│%s  ", meta_color, reset);
     }
 
     // Loging functions End ================================================================================================================
@@ -1399,10 +1626,9 @@ typedef intptr_t  iptr;
         }
         memcpy(*buffer + *len, chunk, chunk_size);
         *len += chunk_size;
-        (*buffer)[*len] = '\0'; // Завжди тримаємо нуль-термінатор для printf
+        (*buffer)[*len] = '\0';
     }
 
-    // Звільняє пам'ять, виділену під результат команди
     void fds_cmd_result_free(fds_cmd_result *res)
     {
         if (res->stdout_data)
@@ -4439,6 +4665,272 @@ typedef intptr_t  iptr;
     }
 
     // Fixed arena fuctions End ================================================================================================================
+
+
+    // Growing arena fuctions Start ==============================================================================================================
+
+    static GrowingArenaBlock *growing_arena_block_create(size_t capacity)
+    {
+        GrowingArenaBlock *block = (GrowingArenaBlock *)FDS_MALLOC(sizeof(*block));
+        FDS_ASSERT(block, "block");
+
+        block->data = (unsigned char *)FDS_MALLOC(capacity);
+        if (!block->data)
+        {
+            FDS_FREE(block);
+            fds_log(FFATAL, "GrowingArena: failed to allocate block data (%zu bytes)", capacity);
+            return NULL;
+        }
+
+        block->offset = 0;
+        block->capacity = capacity;
+        block->next = NULL;
+        return block;
+    }
+
+    static GrowingArenaBlock *growing_arena_find_block(const GrowingArena *arena, const void *ptr)
+    {
+        if (!arena || !ptr)
+            return NULL;
+
+        uintptr_t address = (uintptr_t)ptr;
+        for (GrowingArenaBlock *block = arena->first; block; block = block->next)
+        {
+            uintptr_t begin = (uintptr_t)block->data;
+            uintptr_t end = begin + block->offset;
+            if (address >= begin && address < end)
+                return block;
+        }
+
+        return NULL;
+    }
+
+    GrowingArena growing_arena_create(size_t initial_capacity)
+    {
+        FDS_ASSERT(initial_capacity > 0, "initial_capacity > 0");
+
+        GrowingArena arena = zero;
+        GrowingArenaBlock *block = growing_arena_block_create(initial_capacity);
+        arena.first = block;
+        arena.current = block;
+        arena.initial_capacity = initial_capacity;
+        return arena;
+    }
+
+    void growing_arena_free(GrowingArena *arena)
+    {
+        FDS_ASSERT(arena, "arena");
+
+        GrowingArenaBlock *block = arena->first;
+        while (block)
+        {
+            GrowingArenaBlock *next = block->next;
+            FDS_FREE(block->data);
+            FDS_FREE(block);
+            block = next;
+        }
+
+        arena->first = NULL;
+        arena->current = NULL;
+        arena->initial_capacity = 0;
+    }
+
+    void growing_arena_reset(GrowingArena *arena)
+    {
+        FDS_ASSERT(arena, "arena");
+
+        for (GrowingArenaBlock *block = arena->first; block; block = block->next)
+            block->offset = 0;
+
+        arena->current = arena->first;
+    }
+
+    size_t growing_arena_used(const GrowingArena *arena)
+    {
+        FDS_ASSERT(arena, "arena");
+
+        size_t total = 0;
+        for (GrowingArenaBlock *block = arena->first; block; block = block->next)
+        {
+            if (total > SIZE_MAX - block->offset)
+                fds_log(FFATAL, "GrowingArena used size overflow");
+            total += block->offset;
+        }
+        return total;
+    }
+
+    size_t growing_arena_capacity(const GrowingArena *arena)
+    {
+        FDS_ASSERT(arena, "arena");
+
+        size_t total = 0;
+        for (GrowingArenaBlock *block = arena->first; block; block = block->next)
+        {
+            if (total > SIZE_MAX - block->capacity)
+                fds_log(FFATAL, "GrowingArena capacity overflow");
+            total += block->capacity;
+        }
+        return total;
+    }
+
+    size_t growing_arena_available(const GrowingArena *arena)
+    {
+        size_t capacity = growing_arena_capacity(arena);
+        size_t used = growing_arena_used(arena);
+        return capacity - used;
+    }
+
+    int growing_arena_is_empty(const GrowingArena *arena)
+    {
+        FDS_ASSERT(arena, "arena");
+        return !arena->first || arena->first->offset == 0;
+    }
+
+    int growing_arena_contains(const GrowingArena *arena, const void *ptr)
+    {
+        return growing_arena_find_block(arena, ptr) != NULL;
+    }
+
+    GrowingArenaMark growing_arena_mark(const GrowingArena *arena)
+    {
+        FDS_ASSERT(arena, "arena");
+        FDS_ASSERT(arena->current, "arena->current");
+
+        GrowingArenaMark mark = zero;
+        mark.block = arena->current;
+        mark.offset = arena->current->offset;
+        return mark;
+    }
+
+    void growing_arena_restore(GrowingArena *arena, GrowingArenaMark mark)
+    {
+        FDS_ASSERT(arena, "arena");
+        FDS_ASSERT(mark.block, "mark.block");
+
+        GrowingArenaBlock *block = arena->first;
+        int found = 0;
+        while (block)
+        {
+            if (block == mark.block)
+            {
+                found = 1;
+                break;
+            }
+            block = block->next;
+        }
+
+        FDS_ASSERT(found, "mark belongs to this arena");
+        FDS_ASSERT(mark.offset <= mark.block->offset, "mark.offset <= mark.block->offset");
+
+        mark.block->offset = mark.offset;
+        for (block = mark.block->next; block; block = block->next)
+            block->offset = 0;
+
+        arena->current = mark.block;
+    }
+
+    void *growing_arena_alloc_align(GrowingArena *arena, size_t size, size_t alignment)
+    {
+        FDS_ASSERT(arena, "arena");
+        FDS_ASSERT(arena->current, "arena->current");
+        FDS_ASSERT(size > 0, "size > 0");
+        FDS_ASSERT(alignment > 0, "alignment > 0");
+        FDS_ASSERT((alignment & (alignment - 1)) == 0, "alignment must be a power of two");
+
+        GrowingArenaBlock *block = arena->current;
+
+        uintptr_t ptr = (uintptr_t)(block->data + block->offset);
+        uintptr_t aligned = (ptr + alignment - 1) & ~(uintptr_t)(alignment - 1);
+        size_t padding = (size_t)(aligned - ptr);
+
+        if (padding <= block->capacity - block->offset &&
+            size <= block->capacity - block->offset - padding)
+        {
+            block->offset += padding;
+            void *result = block->data + block->offset;
+            block->offset += size;
+            return result;
+        }
+
+        if (size > SIZE_MAX - (alignment - 1))
+            fds_log(FFATAL, "GrowingArena allocation size overflow");
+
+        size_t required = size + alignment - 1;
+        size_t new_capacity;
+
+        if (block->capacity > SIZE_MAX / 2)
+            new_capacity = required;
+        else
+            new_capacity = block->capacity * 2;
+
+        if (new_capacity < arena->initial_capacity)
+            new_capacity = arena->initial_capacity;
+        if (new_capacity < required)
+            new_capacity = required;
+
+        GrowingArenaBlock *new_block = growing_arena_block_create(new_capacity);
+        block->next = new_block;
+        arena->current = new_block;
+
+        uintptr_t new_ptr = (uintptr_t)new_block->data;
+        uintptr_t new_aligned = (new_ptr + alignment - 1) & ~(uintptr_t)(alignment - 1);
+        size_t new_padding = (size_t)(new_aligned - new_ptr);
+
+        FDS_ASSERT(new_padding <= new_block->capacity, "new block alignment padding fits");
+        FDS_ASSERT(size <= new_block->capacity - new_padding, "new block allocation fits");
+
+        new_block->offset = new_padding;
+        void *result = new_block->data + new_block->offset;
+        new_block->offset += size;
+        return result;
+    }
+
+    void *growing_arena_alloc(GrowingArena *arena, size_t size)
+    {
+        return growing_arena_alloc_align(arena, size, sizeof(void *));
+    }
+
+    void *growing_arena_alloc_zero(GrowingArena *arena, size_t size)
+    {
+        void *ptr = growing_arena_alloc(arena, size);
+        memset(ptr, 0, size);
+        return ptr;
+    }
+
+    void *growing_arena_alloc_array(GrowingArena *arena, size_t count, size_t element_size)
+    {
+        if (count > 0 && element_size > SIZE_MAX / count)
+            fds_log(FFATAL, "Array size overflow");
+
+        return growing_arena_alloc(arena, count * element_size);
+    }
+
+    void *growing_arena_memdup(GrowingArena *arena, const void *src, size_t size)
+    {
+        void *dst = growing_arena_alloc(arena, size);
+        memcpy(dst, src, size);
+        return dst;
+    }
+
+    char *growing_arena_strndup(GrowingArena *arena, const char *str, size_t len)
+    {
+        if (len == SIZE_MAX)
+            fds_log(FFATAL, "String size overflow");
+
+        char *dst = (char *)growing_arena_alloc(arena, len + 1);
+        memcpy(dst, str, len);
+        dst[len] = '\0';
+        return dst;
+    }
+
+    char *growing_arena_strdup(GrowingArena *arena, const char *str)
+    {
+        return growing_arena_strndup(arena, str, strlen(str));
+    }
+
+    // Growing arena fuctions End ================================================================================================================
+
+
 
     // Temp arena fuctions Start ================================================================================================================
 

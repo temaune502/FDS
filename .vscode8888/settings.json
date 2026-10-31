@@ -1,5 +1,5 @@
 {
-    "C_Cpp.default.compilerPath": "e:\\msys\\ucrt64\\bin\\gcc.exe",
+    "C_Cpp.default.compilerPath": "/usr/bin/clang",
     "window.experimental.windowControlsOverlay.roundedCorners": false,
     "workbench.experimental.share.enabled": false,
     "workbench.experimental.useNewLayout": false,
@@ -8,6 +8,4 @@
         "*.h": "c"
     },
     "C_Cpp.autoAddFileAssociations": false
-    
-    
 }

@@ -23,19 +23,27 @@ const char *fds_fmt(const char *fmt, ...);
 const char *fds_fmtv(const char *fmt, va_list args);
 void        fds_fmt_free(void);
 
+void fds_out_i64(FdsOut *out, int64_t val);
+void fds_out_u64(FdsOut *out, uint64_t val);
+void fds_out_flush(FdsOut *out);
+void fds_out_char(FdsOut *out, char c);
+void fds_out_cstr(FdsOut *out, const char *cstr);
+void fds_out_write(FdsOut *out, const char *data, size_t len);
+
 #ifdef __cplusplus
 }
 #endif
 
 #endif // FDS_EXT_FORMATTING_H
 
-/* ============================================================================
-                                РЕАЛІЗАЦІЯ
-   ============================================================================ */
 
-#ifdef FDS_EXT_FORMATTING_IMPLEMENTATION
-#ifndef FDS_EXT_FORMATTING_IMPLEMENTATION_DONE
-#define FDS_EXT_FORMATTING_IMPLEMENTATION_DONE
+// ============================================================================
+//                          FdsOut (Fast Stdio Writer)
+// ============================================================================
+
+typedef struct {
+    FILE *file;
+} FdsOut;
 
 typedef struct FdsFmtSpec {
     bool   zero_pad;
@@ -44,6 +52,73 @@ typedef struct FdsFmtSpec {
     size_t width;
     size_t precision;
 } FdsFmtSpec;
+
+#define fds_stdout() (&fds_stdout_inst)
+#define fds_stderr() (&fds_stderr_inst)
+
+
+
+
+
+#ifdef FDS_EXT_FORMATTING_IMPLEMENTATION
+#ifndef FDS_EXT_FORMATTING_IMPLEMENTATION_DONE
+#define FDS_EXT_FORMATTING_IMPLEMENTATION_DONE
+
+
+static FdsOut fds_stdout_inst = { .file = NULL };
+static FdsOut fds_stderr_inst = { .file = NULL };
+
+
+
+void fds_out_write(FdsOut *out, const char *data, size_t len) {
+    if (!out || len == 0) return;
+    FILE *f = out->file ? out->file : (out == &fds_stdout_inst ? stdout : stderr);
+    fwrite(data, 1, len, f);
+}
+
+void fds_out_cstr(FdsOut *out, const char *cstr) {
+    if (!out || !cstr) return;
+    FILE *f = out->file ? out->file : (out == &fds_stdout_inst ? stdout : stderr);
+    fputs(cstr, f);
+}
+
+void fds_out_char(FdsOut *out, char c) {
+    if (!out) return;
+    FILE *f = out->file ? out->file : (out == &fds_stdout_inst ? stdout : stderr);
+    fputc(c, f);
+}
+
+void fds_out_flush(FdsOut *out) {
+    if (!out) return;
+    FILE *f = out->file ? out->file : (out == &fds_stdout_inst ? stdout : stderr);
+    fflush(f);
+}
+
+
+void fds_out_u64(FdsOut *out, uint64_t val) {
+    char buf[32];
+    int i = 31;
+    buf[i--] = '\0';
+    if (val == 0) {
+        buf[i--] = '0';
+    } else {
+        while (val > 0) {
+            buf[i--] = '0' + (val % 10);
+            val /= 10;
+        }
+    }
+    fds_out_cstr(out, &buf[i + 1]);
+}
+
+void fds_out_i64(FdsOut *out, int64_t val) {
+    if (val < 0) {
+        fds_out_char(out, '-');
+        fds_out_u64(out, (uint64_t)(-val));
+    } else {
+        fds_out_u64(out, (uint64_t)val);
+    }
+}
+
 
 static void fds_fmt_pad(SB *sb, char ch, size_t count) {
     char pad_buf[32];
